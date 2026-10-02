@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>IBKR 投资组合仪表板</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="logo">
+      <span class="logo-icon">📈</span>
+      <span class="logo-text">Portfolio</span>
+    </div>
+    <nav class="side-nav">
+      <a href="#overview" class="nav-item active" data-target="overview">
+        <span class="nav-icon">📊</span> 概览
+      </a>
+      <a href="#positions" class="nav-item" data-target="positions">
+        <span class="nav-icon">💼</span> 持仓
+      </a>
+      <a href="#allocation" class="nav-item" data-target="allocation">
+        <span class="nav-icon">🥧</span> 资产配置
+      </a>
+      <a href="#transactions" class="nav-item" data-target="transactions">
+        <span class="nav-icon">📝</span> 交易记录
+      </a>
+      <a href="#insights" class="nav-item" data-target="insights">
+        <span class="nav-icon">🔎</span> 洞察
+      </a>
+      <a href="#guide" class="nav-item" data-target="guide">
+        <span class="nav-icon">📖</span> 部署指南
+      </a>
+    </nav>
+    <div class="sidebar-footer">
+      <div class="account-info">
+        <div class="account-label">账户</div>
+        <div class="account-id">U****1234</div>
+      </div>
+    </div>
+  </aside>
+
+  <main class="main-content">
+    <header class="top-bar">
+      <div class="top-title">
+        <button class="mobile-menu-btn" type="button" aria-label="打开导航">☰</button>
+        <div>
+          <h1 id="page-title">投资组合概览</h1>
+          <div class="data-status" id="data-status">正在加载数据...</div>
+        </div>
+      </div>
+      <div class="top-actions">
+        <select id="period-select" class="select">
+          <option value="1D">今日</option>
+          <option value="1W">本周</option>
+          <option value="1M">本月</option>
+          <option value="3M">近三月</option>
+          <option value="1Y">近一年</option>
+          <option value="ALL" selected>全部</option>
+        </select>
+        <button class="btn btn-outline" id="refresh-btn">🔄 刷新</button>
+        <button class="btn btn-primary" id="theme-toggle">🌙 主题</button>
+      </div>
+    </header>
+
+    <!-- Overview Section -->
+    <section id="section-overview" class="section active">
+      <div class="summary-card">
+        <div class="summary-main">
+          <div class="summary-label">净资产值</div>
+          <div class="summary-value" id="total-value">$0</div>
+          <div class="summary-change" id="total-change">
+            <span class="change-amount">+$0</span>
+            <span class="change-pct">(+0.00%)</span>
+          </div>
+        </div>
+        <div class="summary-meta">
+          <div class="meta-item">
+            <div class="meta-label">今日盈亏</div>
+            <div class="meta-value up" id="day-pnl">+$0</div>
+          </div>
+          <div class="meta-item">
+            <div class="meta-label">总盈亏</div>
+            <div class="meta-value up" id="total-pnl">+$0</div>
+          </div>
+          <div class="meta-item">
+            <div class="meta-label">收益率</div>
+            <div class="meta-value up" id="total-return">+0.00%</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="stats-row">
+        <div class="stat-box">
+          <div class="stat-title">证券市场价值</div>
+          <div class="stat-num" id="market-value">$0</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-title">现金余额</div>
+          <div class="stat-num" id="cash-value">$0</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-title">持仓数</div>
+          <div class="stat-num" id="pos-count">0</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-title">今日交易</div>
+          <div class="stat-num" id="trade-count">0</div>
+        </div>
+      </div>
+
+      <div class="chart-card">
+        <div class="chart-header">
+          <h3>资产净值走势</h3>
+          <div class="chart-tabs">
+            <button class="chart-tab active" data-range="1M">1M</button>
+            <button class="chart-tab" data-range="3M">3M</button>
+            <button class="chart-tab" data-range="6M">6M</button>
+            <button class="chart-tab" data-range="1Y">1Y</button>
+            <button class="chart-tab" data-range="ALL">全部</button>
+          </div>
+        </div>
+        <div class="chart-container">
+          <canvas id="performance-chart"></canvas>
+        </div>
+      </div>
+
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-header">
+            <h3>持仓分布（按行业）</h3>
+          </div>
+          <div class="chart-container" style="height: 280px;">
+            <canvas id="sector-chart"></canvas>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header">
+            <h3>今日涨跌榜</h3>
+          </div>
+          <div class="top-movers" id="top-movers"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Positions Section -->
+    <section id="section-positions" class="section">
+      <div class="card">
+        <div class="card-header">
+          <h3>持仓明细</h3>
+          <div class="card-tools">
+            <input type="text" id="pos-search" class="input" placeholder="搜索代码..." />
+            <select id="pos-filter" class="select">
+              <option value="all">全部</option>
+              <option value="stock">股票</option>
+              <option value="etf">ETF</option>
+              <option value="option">期权</option>
+              <option value="cash">现金</option>
+            </select>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>代码</th>
+                <th>名称</th>
+                <th>类型</th>
+                <th class="num">数量</th>
+                <th class="num">成本价</th>
+                <th class="num">现价</th>
+                <th class="num">市值</th>
+                <th class="num">盈亏</th>
+                <th class="num">盈亏率</th>
+                <th>下次财报</th>
+              </tr>
+            </thead>
+            <tbody id="positions-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- Allocation Section -->
+    <section id="section-allocation" class="section">
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-header"><h3>资产类别分布</h3></div>
+          <div class="chart-container" style="height: 340px;">
+            <canvas id="asset-class-chart"></canvas>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header"><h3>地区分布</h3></div>
+          <div class="chart-container" style="height: 340px;">
+            <canvas id="region-chart"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header"><h3>十大重仓</h3></div>
+        <div class="top-holdings" id="top-holdings"></div>
+      </div>
+    </section>
+
+    <!-- Transactions Section -->
+    <section id="section-transactions" class="section">
+      <div class="card">
+        <div class="card-header">
+          <h3>最近交易</h3>
+          <select id="tx-filter" class="select">
+            <option value="all">全部类型</option>
+            <option value="buy">买入</option>
+            <option value="sell">卖出</option>
+            <option value="dividend">股息</option>
+            <option value="fee">费用</option>
+          </select>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>日期</th>
+                <th>类型</th>
+                <th>代码</th>
+                <th>名称</th>
+                <th class="num">数量</th>
+                <th class="num">价格</th>
+                <th class="num">金额</th>
+              </tr>
+            </thead>
+            <tbody id="tx-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- Insights Section -->
+    <section id="section-insights" class="section">
+      <div class="card">
+        <div class="card-header">
+          <h3>热门公司财报日历</h3>
+          <div class="card-tools">
+            <button class="btn btn-outline" id="earnings-refresh-btn">刷新财报</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>代码</th>
+                <th>公司</th>
+                <th>下次财报</th>
+                <th>财报期</th>
+              </tr>
+            </thead>
+            <tbody id="popular-earnings-body"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-header">
+          <h3>QQQ 纳指100 ETF 行情</h3>
+          <span class="data-status" id="market-status">正在加载行情...</span>
+        </div>
+        <div class="market-grid" id="market-grid"></div>
+      </div>
+    </section>
+
+    <!-- Guide Section -->
+    <section id="section-guide" class="section">
+      <div class="card">
+        <div class="card-header"><h3>🚀 部署到 Netlify 指南</h3></div>
+        <div class="guide-content">
+          <div class="guide-step">
+            <div class="guide-num">1</div>
+            <div>
+              <h4>注册 Netlify 账号</h4>
+              <p>访问 <a href="https://app.netlify.com" target="_blank">app.netlify.com</a>，使用 GitHub / GitLab / 邮箱注册。</p>
+            </div>
+          </div>
+          <div class="guide-step">
+            <div class="guide-num">2</div>
+            <div>
+              <h4>方式 A：拖拽部署（最快）</h4>
+              <p>在 Netlify 首页找到 <strong>Drop site or upload a folder</strong>，将本站文件夹整个拖进去，几秒即部署完成。</p>
+            </div>
+          </div>
+          <div class="guide-step">
+            <div class="guide-num">3</div>
+            <div>
+              <h4>方式 B：连接 Git 仓库（推荐）</h4>
+              <p><strong>Add new site → Import an existing project</strong>，选择 GitHub 仓库，Build command 留空，Publish directory 填 <code>.</code>（根目录）。</p>
+            </div>
+          </div>
+          <div class="guide-step">
+            <div class="guide-num">4</div>
+            <div>
+              <h4>自定义域名（可选）</h4>
+              <p>Site settings → Domain management → Add custom domain，按提示配置 DNS 即可。</p>
+            </div>
+          </div>
+          <div class="guide-step">
+            <div class="guide-num">5</div>
+            <div>
+              <h4>配置 IBKR Flex Web Service</h4>
+              <p>在 IBKR Client Portal 创建 Flex Query，并在 Netlify 环境变量里添加 <code>IBKR_FLEX_TOKEN</code> 和 <code>IBKR_FLEX_QUERY_ID</code>。</p>
+            </div>
+          </div>
+          <div class="guide-step">
+            <div class="guide-num">6</div>
+            <div>
+              <h4>配置财报日历（可选）</h4>
+              <p>在 Alpha Vantage 申请 API Key，并在 Netlify 环境变量里添加 <code>ALPHA_VANTAGE_API_KEY</code>。</p>
+            </div>
+          </div>
+          <div class="guide-step">
+            <div class="guide-num">7</div>
+            <div>
+              <h4>Netlify配置文件</h4>
+              <p>项目根目录的 <code>netlify.toml</code> 已包含静态发布目录、Functions 目录和头部规则，可直接使用。</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <footer class="footer">
+      <p>📊 IBKR Portfolio Dashboard · IBKR Flex Web Service · Powered by Netlify</p>
+    </footer>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

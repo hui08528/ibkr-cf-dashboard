@@ -1,0 +1,17 @@
+{
+  "name": "ibkr-cf-dashboard",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "node --check app.js && node --check functions/api/portfolio.js && node --check functions/api/earnings.js && node --check functions/api/market.js",
+    "dev": "wrangler pages dev .",
+    "deploy": "wrangler pages deploy ."
+  },
+  "dependencies": {
+    "fast-xml-parser": "^4.5.0"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}
