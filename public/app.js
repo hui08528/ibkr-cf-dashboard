@@ -73,6 +73,7 @@ const popularCompanies = [
   { symbol: "AVGO", name: "Broadcom", nameCn: "博通" },
   { symbol: "TSM", name: "Taiwan Semiconductor", nameCn: "台积电" },
   { symbol: "AMD", name: "AMD", nameCn: "超威半导体" },
+  { symbol: "MU", name: "Micron Technology", nameCn: "美光" },
   { symbol: "NFLX", name: "Netflix", nameCn: "奈飞" },
   { symbol: "JPM", name: "JPMorgan Chase", nameCn: "摩根大通" },
   { symbol: "LLY", name: "Eli Lilly", nameCn: "礼来" },
