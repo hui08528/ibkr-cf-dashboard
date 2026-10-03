@@ -271,55 +271,55 @@
     <!-- Guide Section -->
     <section id="section-guide" class="section">
       <div class="card">
-        <div class="card-header"><h3>🚀 部署到 Netlify 指南</h3></div>
+        <div class="card-header"><h3>🚀 部署到自托管服务器指南</h3></div>
         <div class="guide-content">
           <div class="guide-step">
             <div class="guide-num">1</div>
             <div>
-              <h4>注册 Netlify 账号</h4>
-              <p>访问 <a href="https://app.netlify.com" target="_blank">app.netlify.com</a>，使用 GitHub / GitLab / 邮箱注册。</p>
+              <h4>准备一台海外 VPS</h4>
+              <p>推荐香港 / 日本 / 新加坡节点，1C1G 即可（免 ICP 备案，国内直连效果好）。详细选购建议见 <code>DEPLOY.md</code>。</p>
             </div>
           </div>
           <div class="guide-step">
             <div class="guide-num">2</div>
             <div>
-              <h4>方式 A：拖拽部署（最快）</h4>
-              <p>在 Netlify 首页找到 <strong>Drop site or upload a folder</strong>，将本站文件夹整个拖进去，几秒即部署完成。</p>
+              <h4>安装运行环境</h4>
+              <p>在 VPS 上安装 <strong>Node.js 20 LTS（及以上）</strong>、nginx、certbot。</p>
             </div>
           </div>
           <div class="guide-step">
             <div class="guide-num">3</div>
             <div>
-              <h4>方式 B：连接 Git 仓库（推荐）</h4>
-              <p><strong>Add new site → Import an existing project</strong>，选择 GitHub 仓库，Build command 留空，Publish directory 填 <code>.</code>（根目录）。</p>
+              <h4>获取代码并安装依赖</h4>
+              <p>把仓库 clone 到服务器（如 <code>/opt/ibkr-cf-dashboard</code>），执行 <code>npm ci --omit=dev</code>。</p>
             </div>
           </div>
           <div class="guide-step">
             <div class="guide-num">4</div>
             <div>
-              <h4>自定义域名（可选）</h4>
-              <p>Site settings → Domain management → Add custom domain，按提示配置 DNS 即可。</p>
+              <h4>配置环境变量</h4>
+              <p>复制 <code>.env.example</code> 为 <code>.env</code>，填入 <code>IBKR_FLEX_TOKEN</code>、<code>IBKR_FLEX_QUERY_ID</code>（必填），<code>ALPHA_VANTAGE_API_KEY</code>（可选）。执行 <code>chmod 600 .env</code>。</p>
             </div>
           </div>
           <div class="guide-step">
             <div class="guide-num">5</div>
             <div>
-              <h4>配置 IBKR Flex Web Service</h4>
-              <p>在 IBKR Client Portal 创建 Flex Query，并在 Netlify 环境变量里添加 <code>IBKR_FLEX_TOKEN</code> 和 <code>IBKR_FLEX_QUERY_ID</code>。</p>
+              <h4>启动后端服务</h4>
+              <p>推荐用 Docker Compose（<code>docker compose up -d --build</code>），以后加后端服务、数据库都往 <code>docker-compose.yml</code> 里加容器即可。不想用 Docker 也可用 PM2 / systemd（详见 <code>DEPLOY.md</code> 附录）。</p>
             </div>
           </div>
           <div class="guide-step">
             <div class="guide-num">6</div>
             <div>
-              <h4>配置财报日历（可选）</h4>
-              <p>在 Alpha Vantage 申请 API Key，并在 Netlify 环境变量里添加 <code>ALPHA_VANTAGE_API_KEY</code>。</p>
+              <h4>配置 nginx 反代 + HTTPS</h4>
+              <p>参考 <code>deploy/nginx.conf</code> 配置反代与安全头，用 <code>certbot --nginx</code> 一键签发 HTTPS 证书。</p>
             </div>
           </div>
           <div class="guide-step">
             <div class="guide-num">7</div>
             <div>
-              <h4>Netlify配置文件</h4>
-              <p>项目根目录的 <code>netlify.toml</code> 已包含静态发布目录、Functions 目录和头部规则，可直接使用。</p>
+              <h4>访问保护（强烈建议）</h4>
+              <p>页面和 API 会返回你的真实持仓数据。建议在 nginx 开启 Basic Auth（<code>htpasswd</code>），零前端改动即可整站保护。详见 <code>DEPLOY.md</code>。</p>
             </div>
           </div>
         </div>
@@ -327,11 +327,11 @@
     </section>
 
     <footer class="footer">
-      <p>📊 IBKR Portfolio Dashboard · IBKR Flex Web Service · Powered by Netlify</p>
+      <p>📊 IBKR Portfolio Dashboard · IBKR Flex Web Service · 自托管部署</p>
     </footer>
   </main>
 
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="vendor/chart.umd.min.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

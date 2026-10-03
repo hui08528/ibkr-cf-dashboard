@@ -1,0 +1,23 @@
+# IBKR Dashboard - systemd unit（PM2 之外的备选）
+# 用法：放到 /etc/systemd/system/ibkr-dashboard.service，然后：
+#   systemctl daemon-reload
+#   systemctl enable --now ibkr-dashboard
+# 日志：journalctl -u ibkr-dashboard -f
+
+[Unit]
+Description=IBKR Portfolio Dashboard
+After=network.target
+
+[Service]
+Type=simple
+User=deploy
+WorkingDirectory=/opt/ibkr-cf-dashboard
+ExecStart=/usr/bin/node server.js
+Restart=always
+RestartSec=3
+# dotenv 默认不覆盖已存在的环境变量，与 EnvironmentFile 不冲突
+Environment=NODE_ENV=production
+EnvironmentFile=/opt/ibkr-cf-dashboard/.env
+
+[Install]
+WantedBy=multi-user.target

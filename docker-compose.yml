@@ -1,0 +1,43 @@
+# IBKR Dashboard - 多服务编排（docker-compose）
+# 启动：docker compose up -d --build
+# 更新：docker compose build && docker compose up -d
+# 查看：docker compose ps / logs -f dashboard
+
+services:
+  dashboard:
+    build: .
+    image: ibkr-dashboard:latest
+    container_name: ibkr-dashboard
+    restart: unless-stopped
+    # 密钥从 .env 注入，不写进镜像
+    env_file: .env
+    ports:
+      # 只绑定宿主机 127.0.0.1，由宿主机 nginx 反代；不对公网开放
+      - "127.0.0.1:3000:3000"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # ── 以后新增后端服务，在这里追加（示例）──
+  # service-b:
+  #   build: ./services/service-b        # 或 image: xxx
+  #   restart: unless-stopped
+  #   env_file: .env
+  #   ports:
+  #     - "127.0.0.1:3001:3001"          # 换一个宿主端口
+  #
+  # 然后在 deploy/nginx.conf 加一个 location 指到 127.0.0.1:3001 即可。
+  # 需要数据库/缓存时直接加官方镜像：
+  # db:
+  #   image: postgres:16-alpine
+  #   restart: unless-stopped
+  #   environment:
+  #     POSTGRES_PASSWORD: ${DB_PASSWORD}
+  #   volumes:
+  #     - pgdata:/var/lib/postgresql/data
+  #
+  # volumes:
+  #   pgdata:

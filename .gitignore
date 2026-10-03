@@ -1,4 +1,10 @@
 node_modules/
 .wrangler/
-.dev.vars
+.idea/
+.omc/
+.env
+.env.*
+!.env.example
+*.log
+deploy/.htpasswd
 .DS_Store
