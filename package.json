@@ -9,7 +9,7 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "check": "node --check server.js && node --check public/app.js && node --check functions/api/portfolio.js && node --check functions/api/earnings.js && node --check functions/api/market.js"
+    "check": "node --check server.js && node --check public/app.js && node --check functions/api/portfolio.js && node --check functions/api/earnings.js && node --check functions/api/market.js && node --check functions/api/benchmark.js"
   },
   "dependencies": {
     "dotenv": "^16.4.7",

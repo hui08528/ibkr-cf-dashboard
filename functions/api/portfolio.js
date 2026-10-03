@@ -136,7 +136,63 @@ function parseFlexStatement(xml) {
     cash: parseCash(statement),
     transactions: parseTrades(statement),
     navSeries: parseNavSeries(statement),
+    cashflow: parseCashflow(statement),
   };
+}
+
+function parseCashflow(statement) {
+  const cashTxs = toArray(statement.CashTransactions?.CashTransaction);
+  const dividends = [];
+  const fees = [];
+
+  for (const row of cashTxs) {
+    const description = valueOf(row.description || row.type) || "";
+    if (!/dividend|fee|commission|regulatory|interest|withholding/i.test(description)) continue;
+    const date = formatDate(row.dateTime || row.reportDate || row.date);
+    const month = date ? date.slice(0, 7) : "";
+    const amount = num(row.amount);
+    if (/dividend/i.test(description)) {
+      dividends.push({ month, symbol: valueOf(row.symbol), name: description, amount });
+    } else {
+      fees.push({ month, name: description, amount });
+    }
+  }
+
+  return {
+    dividends: {
+      total: dividends.reduce((sum, row) => sum + row.amount, 0),
+      byMonth: aggregateCashflowByMonth(dividends),
+      bySymbol: aggregateCashflowBySymbol(dividends),
+    },
+    fees: {
+      total: fees.reduce((sum, row) => sum + row.amount, 0),
+      byMonth: aggregateCashflowByMonth(fees),
+    },
+  };
+}
+
+function aggregateCashflowByMonth(rows) {
+  const grouped = new Map();
+  for (const row of rows) {
+    if (!row.month) continue;
+    grouped.set(row.month, (grouped.get(row.month) || 0) + row.amount);
+  }
+  return [...grouped.entries()]
+    .map(([month, amount]) => ({ month, amount }))
+    .sort((a, b) => a.month.localeCompare(b.month));
+}
+
+function aggregateCashflowBySymbol(rows) {
+  const grouped = new Map();
+  for (const row of rows) {
+    const symbol = row.symbol || "其他";
+    grouped.set(symbol, {
+      symbol,
+      name: row.name || symbol,
+      amount: (grouped.get(symbol)?.amount || 0) + row.amount,
+    });
+  }
+  return [...grouped.values()].sort((a, b) => b.amount - a.amount);
 }
 
 function parseSummary(statement) {
@@ -279,7 +335,7 @@ function parseTrades(statement) {
   });
 
   const cashRows = cashTxs
-    .filter((row) => /dividend|fee|interest|withholding/i.test(valueOf(row.type || row.description)))
+    .filter((row) => /dividend|fee|commission|regulatory|interest|withholding/i.test(valueOf(row.type || row.description)))
     .map((row) => {
       const description = valueOf(row.description || row.type) || "现金交易";
       const amount = num(row.amount);

@@ -208,5 +208,6 @@ systemctl daemon-reload && systemctl enable --now ibkr-dashboard
 | `IBKR_FLEX_CACHE_SECONDS` | 否 | 组合缓存秒数，默认 600 |
 | `ALPHA_VANTAGE_API_KEY` | 否 | 财报日历 + QQQ 行情用 |
 | `EARNINGS_CACHE_SECONDS` | 否 | 财报缓存秒数，默认 86400 |
-| `MARKET_CACHE_SECONDS` | 否 | 行情缓存秒数，默认 300 |
+| `MARKET_CACHE_SECONDS` | 否 | 行情缓存秒数，默认 300（建议 7200，控制 25 次/天免费额度） |
+| `BENCHMARK_CACHE_SECONDS` | 否 | 基准行情缓存秒数，默认 86400（QQQ 日线，1 次/天） |
 | `DB_PASSWORD` 等 | 否 | 以后加数据库时在 `.env` 新增，compose 里 `${DB_PASSWORD}` 引用 |

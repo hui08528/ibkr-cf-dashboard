@@ -25,6 +25,9 @@
       <a href="#transactions" class="nav-item" data-target="transactions">
         <span class="nav-icon">📝</span> 交易记录
       </a>
+      <a href="#analytics" class="nav-item" data-target="analytics">
+        <span class="nav-icon">📈</span> 分析
+      </a>
       <a href="#insights" class="nav-item" data-target="insights">
         <span class="nav-icon">🔎</span> 洞察
       </a>
@@ -112,7 +115,7 @@
       <div class="chart-card">
         <div class="chart-header">
           <h3>资产净值走势</h3>
-          <div class="chart-tabs">
+          <div class="chart-tabs" id="perf-tabs">
             <button class="chart-tab active" data-range="1M">1M</button>
             <button class="chart-tab" data-range="3M">3M</button>
             <button class="chart-tab" data-range="6M">6M</button>
@@ -231,6 +234,83 @@
               </tr>
             </thead>
             <tbody id="tx-body"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- Analytics Section -->
+    <section id="section-analytics" class="section">
+      <div class="card">
+        <div class="chart-header">
+          <h3>组合 vs QQQ 基准对比（归一到 100）</h3>
+          <div class="card-tools">
+            <span class="data-status" id="benchmark-status"></span>
+            <div class="chart-tabs" id="bench-tabs">
+              <button class="chart-tab" data-range="3M">3M</button>
+              <button class="chart-tab" data-range="6M">6M</button>
+              <button class="chart-tab active" data-range="1Y">1Y</button>
+              <button class="chart-tab" data-range="ALL">全部</button>
+            </div>
+          </div>
+        </div>
+        <div class="chart-container">
+          <canvas id="benchmark-chart"></canvas>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header"><h3>月度收益</h3></div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>月份</th>
+                <th class="num">月末净值</th>
+                <th class="num">当月收益</th>
+                <th class="num">同期 QQQ</th>
+              </tr>
+            </thead>
+            <tbody id="monthly-returns-body"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-header"><h3>股息收入（按个股）</h3></div>
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>代码</th>
+                  <th>来源</th>
+                  <th class="num">金额</th>
+                </tr>
+              </thead>
+              <tbody id="dividends-body"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header"><h3>股息按月分布</h3></div>
+          <div class="chart-container" style="height: 220px;">
+            <canvas id="dividend-chart"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header"><h3>交易成本（佣金/费用）</h3></div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>月份</th>
+                <th class="num">金额</th>
+              </tr>
+            </thead>
+            <tbody id="fees-body"></tbody>
           </table>
         </div>
       </div>

@@ -43,10 +43,14 @@ let popularEarningsBySymbol = {};
 let popularEarningsStatus = "idle";
 let marketQuotes = [];
 let marketStatus = "idle";
+let benchmarkData = null;
+let benchmarkStatus = "idle";
 let perfChart;
 let sectorChart;
 let assetClassChart;
 let regionChart;
+let benchmarkChart;
+let dividendChart;
 
 const navItems = document.querySelectorAll(".nav-item");
 const sections = document.querySelectorAll(".section");
@@ -58,6 +62,7 @@ const titles = {
   positions: "持仓明细",
   allocation: "资产配置",
   transactions: "交易记录",
+  analytics: "收益分析",
   insights: "市场洞察",
   guide: "部署指南",
 };
@@ -334,6 +339,23 @@ function normalizePortfolio(input) {
     cash: normalizePosition(input?.cash || demoData.cash),
     transactions: (Array.isArray(input?.transactions) ? input.transactions : demoData.transactions).map(normalizeTransaction),
     navSeries: Array.isArray(input?.navSeries) ? input.navSeries : [],
+    cashflow: normalizeCashflow(input?.cashflow),
+  };
+}
+
+function normalizeCashflow(input) {
+  const dividends = input?.dividends || {};
+  const fees = input?.fees || {};
+  return {
+    dividends: {
+      total: number(dividends.total),
+      byMonth: Array.isArray(dividends.byMonth) ? dividends.byMonth : [],
+      bySymbol: Array.isArray(dividends.bySymbol) ? dividends.bySymbol : [],
+    },
+    fees: {
+      total: number(fees.total),
+      byMonth: Array.isArray(fees.byMonth) ? fees.byMonth : [],
+    },
   };
 }
 
@@ -398,11 +420,19 @@ function wireControls() {
     document.querySelector(".sidebar")?.classList.toggle("open");
   });
 
-  document.querySelectorAll(".chart-tab").forEach((tab) => {
+  document.querySelectorAll("#perf-tabs .chart-tab").forEach((tab) => {
     tab.addEventListener("click", () => {
-      document.querySelectorAll(".chart-tab").forEach((item) => item.classList.remove("active"));
+      document.querySelectorAll("#perf-tabs .chart-tab").forEach((item) => item.classList.remove("active"));
       tab.classList.add("active");
       renderPerformanceChart(currentChartDays());
+    });
+  });
+
+  document.querySelectorAll("#bench-tabs .chart-tab").forEach((tab) => {
+    tab.addEventListener("click", () => {
+      document.querySelectorAll("#bench-tabs .chart-tab").forEach((item) => item.classList.remove("active"));
+      tab.classList.add("active");
+      renderBenchmarkChart(benchmarkDays());
     });
   });
 
@@ -416,7 +446,7 @@ function wireControls() {
   document.getElementById("earnings-refresh-btn")?.addEventListener("click", () => loadPopularEarnings(true));
 
   document.getElementById("period-select")?.addEventListener("change", (event) => {
-    document.querySelectorAll(".chart-tab").forEach((item) => item.classList.toggle("active", item.dataset.range === event.target.value));
+    document.querySelectorAll("#perf-tabs .chart-tab").forEach((item) => item.classList.toggle("active", item.dataset.range === event.target.value));
     renderPerformanceChart(currentChartDays());
   });
 
@@ -445,6 +475,8 @@ function wireControls() {
     renderPerformanceChart(currentChartDays());
     renderSectorChart();
     renderAllocationCharts();
+    renderBenchmarkChart(benchmarkDays());
+    renderDividendChart();
   });
 }
 
@@ -456,6 +488,7 @@ function showSection(name) {
   if (target === "allocation") renderAllocationCharts();
   if (target === "positions") renderPositionsTable(currentPositionFilter(), currentPositionSearch());
   if (target === "transactions") renderTxTable(currentTxFilter());
+  if (target === "analytics") renderAnalytics();
   if (target === "insights") renderInsights();
 }
 
@@ -680,6 +713,273 @@ function renderTxTable(filter = "all") {
   `).join("");
 }
 
+function renderAnalytics() {
+  renderMonthlyReturns();
+  renderDividends();
+  renderFees();
+  if (benchmarkStatus === "idle" || benchmarkStatus === "unavailable") {
+    loadBenchmark();
+  } else {
+    renderBenchmarkChart(benchmarkDays());
+  }
+}
+
+async function loadBenchmark() {
+  benchmarkStatus = "loading";
+  renderBenchmarkChart(benchmarkDays());
+  try {
+    const response = await fetch("/api/benchmark", { headers: { Accept: "application/json" } });
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      throw new Error(body.message || `Benchmark API failed with ${response.status}`);
+    }
+    const body = await response.json();
+    benchmarkData = body.benchmark || null;
+    benchmarkStatus = "ready";
+  } catch (error) {
+    console.warn(error);
+    benchmarkData = null;
+    benchmarkStatus = "unavailable";
+  }
+  renderBenchmarkChart(benchmarkDays());
+}
+
+function renderBenchmarkChart(days) {
+  const canvas = document.getElementById("benchmark-chart");
+  if (!canvas) return;
+  const statusEl = document.getElementById("benchmark-status");
+  if (benchmarkChart) benchmarkChart.destroy();
+  benchmarkChart = null;
+
+  const statusText = {
+    idle: "",
+    loading: "正在加载基准行情...",
+    ready: "",
+    unavailable: "基准行情暂不可用（未配置 Alpha Vantage）",
+  };
+  if (statusEl) statusEl.textContent = statusText[benchmarkStatus] || "";
+  if (benchmarkStatus === "loading") return;
+
+  const portfolioSeries = portfolio.navSeries
+    .map((row) => ({ date: String(row.date || "").slice(0, 10), value: number(row.value) }))
+    .filter((row) => row.value > 0 && validDate(row.date))
+    .sort((a, b) => a.date.localeCompare(b.date));
+  const benchmarkPoints = (Array.isArray(benchmarkData?.points) ? benchmarkData.points : []).filter((point) => validDate(point.date));
+
+  if (portfolioSeries.length < 2 || benchmarkPoints.length < 2) {
+    if (statusEl) statusEl.textContent = "数据不足（组合净值或基准行情不可用）";
+    return;
+  }
+
+  const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+  const inRange = (date) => new Date(`${date}T00:00:00Z`).getTime() >= cutoff;
+  const portfolioInRange = portfolioSeries.filter((point) => inRange(point.date));
+  const benchInRange = benchmarkPoints.filter((point) => inRange(point.date));
+  if (portfolioInRange.length < 2 || benchInRange.length < 2) return;
+
+  // 两端都归一到 100，按日期对齐（缺失点由 spanGaps 连接）
+  const p0 = portfolioInRange[0].value;
+  const b0 = benchInRange[0].close;
+  const normalize = (value, base) => (base ? (value / base) * 100 : 100);
+  const pMap = new Map(portfolioInRange.map((point) => [point.date, point.value]));
+  const bMap = new Map(benchInRange.map((point) => [point.date, point.close]));
+  const allDates = [...new Set([...pMap.keys(), ...bMap.keys()])].sort();
+
+  const colors = chartColors();
+  const ctx = canvas.getContext("2d");
+  benchmarkChart = new Chart(ctx, {
+    type: "line",
+    data: {
+      labels: allDates.map((date) => new Date(`${date}T00:00:00Z`).toLocaleDateString("zh-CN", { month: "short", day: "numeric" })),
+      datasets: [
+        {
+          label: "组合净值",
+          data: allDates.map((date) => (pMap.has(date) ? normalize(pMap.get(date), p0) : null)),
+          borderColor: "#2563eb",
+          borderWidth: 2,
+          pointRadius: 0,
+          tension: 0.4,
+          spanGaps: true,
+        },
+        {
+          label: "QQQ",
+          data: allDates.map((date) => (bMap.has(date) ? normalize(bMap.get(date), b0) : null)),
+          borderColor: "#10b981",
+          borderWidth: 2,
+          pointRadius: 0,
+          tension: 0.4,
+          spanGaps: true,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: "index", intersect: false },
+      plugins: {
+        legend: { labels: { color: colors.text } },
+        tooltip: { callbacks: { label: (item) => ` ${item.dataset.label}: ${item.parsed.y.toFixed(1)}` } },
+      },
+      scales: {
+        x: { grid: { color: colors.grid, drawBorder: false }, ticks: { color: colors.text, maxTicksLimit: 8, font: { size: 11 } } },
+        y: { grid: { color: colors.grid, drawBorder: false }, ticks: { color: colors.text, font: { size: 11 }, callback: (value) => value.toFixed(0) } },
+      },
+    },
+  });
+}
+
+function renderMonthlyReturns() {
+  const tbody = document.getElementById("monthly-returns-body");
+  if (!tbody) return;
+  const nav = portfolio.navSeries;
+  if (!Array.isArray(nav) || nav.length < 2) {
+    tbody.innerHTML = `<tr><td colspan="4" class="empty-cell">净值历史数据不足（需至少 2 个净值点）</td></tr>`;
+    return;
+  }
+
+  const byMonth = new Map();
+  for (const row of nav) {
+    const date = String(row.date || "").slice(0, 10);
+    if (!validDate(date)) continue;
+    byMonth.set(date.slice(0, 7), number(row.value)); // nav 升序，后者即月末值
+  }
+  const months = [...byMonth.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  const benchKeys = benchmarkMonthKeys();
+
+  const rows = [];
+  for (let index = 1; index < months.length; index += 1) {
+    const prev = months[index - 1][1];
+    const current = months[index][1];
+    if (!prev || !current) continue;
+    rows.push({
+      month: months[index][0],
+      endNav: current,
+      ret: ((current - prev) / prev) * 100,
+      qqq: benchmarkMonthReturn(benchKeys, months[index][0]),
+    });
+  }
+
+  tbody.innerHTML = rows
+    .slice(-12)
+    .reverse()
+    .map((row) => {
+      const qqq = row.qqq;
+      const qqqCell = qqq === null ? "-" : `<span class="${qqq >= 0 ? "pnl-up" : "pnl-down"}">${qqq >= 0 ? "+" : ""}${qqq.toFixed(2)}%</span>`;
+      return `
+        <tr>
+          <td>${formatMonthLabel(row.month)}</td>
+          <td class="num">${formatCurrency(row.endNav)}</td>
+          <td class="num ${row.ret >= 0 ? "pnl-up" : "pnl-down"}">${row.ret >= 0 ? "+" : ""}${row.ret.toFixed(2)}%</td>
+          <td class="num">${qqqCell}</td>
+        </tr>
+      `;
+    })
+    .join("");
+}
+
+function benchmarkMonthKeys() {
+  if (!Array.isArray(benchmarkData?.points)) return null;
+  const map = new Map();
+  for (const point of benchmarkData.points) {
+    if (!validDate(point.date)) continue;
+    map.set(point.date.slice(0, 7), number(point.close)); // 升序，后者即月末值
+  }
+  return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+}
+
+function benchmarkMonthReturn(keys, month) {
+  if (!keys) return null;
+  const index = keys.findIndex(([key]) => key === month);
+  if (index <= 0) return null;
+  const prev = keys[index - 1][1];
+  const current = keys[index][1];
+  if (!prev || !current) return null;
+  return ((current - prev) / prev) * 100;
+}
+
+function renderDividends() {
+  const tbody = document.getElementById("dividends-body");
+  if (!tbody) return;
+  const dividends = portfolio.cashflow?.dividends;
+  if (!dividends || !dividends.total) {
+    tbody.innerHTML = `<tr><td colspan="3" class="empty-cell">暂无股息记录</td></tr>`;
+    renderDividendChart();
+    return;
+  }
+  const bySymbol = Array.isArray(dividends.bySymbol) ? dividends.bySymbol : [];
+  tbody.innerHTML =
+    bySymbol
+      .map((row) => `
+        <tr>
+          <td class="symbol-cell">${escapeHtml(row.symbol || "-")}</td>
+          <td>${escapeHtml(row.name || "-")}</td>
+          <td class="num">${formatCurrency(row.amount)}</td>
+        </tr>
+      `)
+      .join("") +
+    `<tr class="total-row"><td>合计</td><td></td><td class="num">${formatCurrency(dividends.total)}</td></tr>`;
+  renderDividendChart();
+}
+
+function renderDividendChart() {
+  const canvas = document.getElementById("dividend-chart");
+  if (!canvas) return;
+  if (dividendChart) dividendChart.destroy();
+  dividendChart = null;
+  const byMonth = Array.isArray(portfolio.cashflow?.dividends?.byMonth) ? portfolio.cashflow.dividends.byMonth : [];
+  if (!byMonth.length) return;
+  const colors = chartColors();
+  dividendChart = new Chart(canvas.getContext("2d"), {
+    type: "bar",
+    data: {
+      labels: byMonth.map((row) => formatMonthLabel(row.month)),
+      datasets: [{ label: "股息", data: byMonth.map((row) => row.amount), backgroundColor: "#10b981", borderRadius: 4 }],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: (item) => ` ${formatCurrency(item.parsed.y)}` } },
+      },
+      scales: {
+        x: { grid: { color: colors.grid, drawBorder: false }, ticks: { color: colors.text, font: { size: 11 } } },
+        y: { grid: { color: colors.grid, drawBorder: false }, ticks: { color: colors.text, font: { size: 11 }, callback: (value) => formatCurrency(value) } },
+      },
+    },
+  });
+}
+
+function renderFees() {
+  const tbody = document.getElementById("fees-body");
+  if (!tbody) return;
+  const fees = portfolio.cashflow?.fees;
+  if (!fees || !fees.total) {
+    tbody.innerHTML = `<tr><td colspan="2" class="empty-cell">暂无费用记录</td></tr>`;
+    return;
+  }
+  const byMonth = Array.isArray(fees.byMonth) ? fees.byMonth : [];
+  tbody.innerHTML =
+    byMonth
+      .map((row) => `
+        <tr>
+          <td>${formatMonthLabel(row.month)}</td>
+          <td class="num">${formatCurrency(row.amount)}</td>
+        </tr>
+      `)
+      .join("") +
+    `<tr class="total-row"><td>合计</td><td class="num">${formatCurrency(fees.total)}</td></tr>`;
+}
+
+function formatMonthLabel(month) {
+  if (!month || month.length < 7) return "-";
+  return `${month.slice(0, 4)}年${Number(month.slice(5, 7))}月`;
+}
+
+function validDate(date) {
+  return !Number.isNaN(new Date(`${date}T00:00:00Z`).getTime());
+}
+
 function navSeriesForRange(days) {
   const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
   const actual = portfolio.navSeries
@@ -713,8 +1013,13 @@ function groupByValue(rows, keyFn, valueFn) {
 }
 
 function currentChartDays() {
-  const activeRange = document.querySelector(".chart-tab.active")?.dataset.range || document.getElementById("period-select")?.value || "1Y";
+  const activeRange = document.querySelector("#perf-tabs .chart-tab.active")?.dataset.range || document.getElementById("period-select")?.value || "1Y";
   return { "1D": 1, "1W": 7, "1M": 30, "3M": 90, "6M": 180, "1Y": 365, ALL: 730 }[activeRange] || 365;
+}
+
+function benchmarkDays() {
+  const activeRange = document.querySelector("#bench-tabs .chart-tab.active")?.dataset.range || "1Y";
+  return { "3M": 90, "6M": 180, "1Y": 365, ALL: 730 }[activeRange] || 365;
 }
 
 function currentPositionFilter() {
