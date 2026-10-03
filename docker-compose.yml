@@ -11,6 +11,10 @@ services:
     restart: unless-stopped
     # 密钥从 .env 注入，不写进镜像
     env_file: .env
+    # 强制容器内监听 0.0.0.0，避免 .env 里的 HOST 覆盖导致端口映射失效
+    environment:
+      HOST: 0.0.0.0
+      PORT: 3000
     ports:
       # 只绑定宿主机 127.0.0.1，由宿主机 nginx 反代；不对公网开放
       - "127.0.0.1:3000:3000"
