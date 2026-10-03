@@ -361,15 +361,21 @@ function parseNavSeries(statement) {
   const rows = [
     ...toArray(statement.NetAssetValues?.NetAssetValue),
     ...toArray(statement.ChangeInNAV?.ChangeInNAVRow),
+    // EquitySummaryByReportDateInBase 是按报告日期的净值历史（很多 Flex 查询用这个段）
+    ...toArray(statement.EquitySummaryInBase?.EquitySummaryByReportDateInBase),
   ];
 
-  return rows
+  const points = rows
     .map((row) => ({
       date: formatDate(row.date || row.reportDate),
       value: num(row.total || row.totalNav || row.nav || row.endingValue),
     }))
     .filter((row) => row.date && row.value > 0)
     .sort((a, b) => a.date.localeCompare(b.date));
+
+  // 去掉账户尚未入金时的近零值（相对最大值 <0.1%），避免月度收益出现天文数字
+  const maxValue = points.reduce((max, point) => Math.max(max, point.value), 0);
+  return points.filter((point) => point.value >= maxValue * 0.001);
 }
 
 function normalizeAssetType(value) {
