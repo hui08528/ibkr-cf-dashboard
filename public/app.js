@@ -683,10 +683,15 @@ function renderAllocationCharts(force = false) {
   if (!force && !document.getElementById("section-positions").classList.contains("active")) return;
 
   const typeData = groupByValue([...positions, cash], (position) => ({ stock: "股票", etf: "ETF", option: "期权", cash: "现金" }[position.type] || position.type), positionMarketValue);
-  const topHoldings = [...positions]
+  const holdingRows = [...positions]
     .map((position) => ({ ...position, marketValue: positionMarketValue(position) }))
-    .sort((a, b) => b.marketValue - a.marketValue)
-    .slice(0, 10);
+    .sort((a, b) => b.marketValue - a.marketValue);
+  const majorHoldings = holdingRows.filter((position) => totals.totalMarket > 0 && position.marketValue / totals.totalMarket >= 0.1);
+  const minorHoldingsValue = holdingRows
+    .filter((position) => totals.totalMarket <= 0 || position.marketValue / totals.totalMarket < 0.1)
+    .reduce((sum, position) => sum + position.marketValue, 0);
+  const holdingMix = Object.fromEntries(majorHoldings.map((position) => [`${position.name || position.symbol} (${position.symbol})`, position.marketValue]));
+  if (minorHoldingsValue > 0) holdingMix["其他"] = minorHoldingsValue;
   const colors = chartColors();
 
   if (assetClassChart) assetClassChart.destroy();
@@ -694,7 +699,7 @@ function renderAllocationCharts(force = false) {
   assetClassChart = pieChart("asset-class-chart", typeData, ["#2563eb", "#8b5cf6", "#10b981", "#f59e0b"], colors);
   topHoldingsChart = pieChart(
     "top-holdings-chart",
-    Object.fromEntries(topHoldings.map((position) => [position.symbol, position.marketValue])),
+    holdingMix,
     ["#2563eb", "#ef4444", "#10b981", "#8b5cf6", "#f59e0b", "#06b6d4", "#ec4899", "#84cc16", "#f97316", "#6366f1"],
     colors,
     true,
