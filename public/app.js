@@ -531,9 +531,10 @@ function renderFrameworkAnalysis() {
   const summary = portfolio.summary || {};
   const securities = number(summary.securitiesMarketValue) || positions.reduce((sum, position) => sum + positionMarketValue(position), 0);
   const nav = number(summary.netAssetValue) || totals.totalMarket || 0;
-  const cashValue = number(summary.cash);
+  const cashValue = summary.cash !== undefined && summary.cash !== null ? number(summary.cash) : number(totals.cashValue);
   const debt = Math.max(0, -cashValue);
-  const leverage = nav > 0 ? securities / nav : 0;
+  const totalAssets = securities + Math.max(0, cashValue);
+  const leverage = nav > 0 ? totalAssets / nav : 0;
   const debtRatio = nav > 0 ? debt / nav : 0;
   const largest = [...positions].map((position) => positionMarketValue(position)).sort((a, b) => b - a)[0] || 0;
   const concentration = securities > 0 ? largest / securities : 0;
@@ -544,6 +545,7 @@ function renderFrameworkAnalysis() {
   setText("framework-leverage", nav > 0 ? `${leverage.toFixed(2)} 倍` : "—");
   setText("framework-debt-ratio", nav > 0 ? percent(debt, nav) : "—");
   setText("framework-concentration", securities > 0 ? percent(concentration * securities, securities) : "—");
+  renderLeverageScale(leverage);
   const status = document.getElementById("framework-account-status");
   if (status) status.textContent = portfolio.source === "ibkr-flex" ? `IBKR Flex · ${portfolio.updatedAt ? new Date(portfolio.updatedAt).toLocaleString("zh-CN") : "已同步"}` : "Demo 数据";
   const alert = document.getElementById("framework-risk-alert");
@@ -571,6 +573,31 @@ function renderFrameworkAnalysis() {
   }
   alert.hidden = false;
   alert.innerHTML = `<strong>风险提示：</strong>${messages.join(" ")}<br><strong>操作建议：</strong><ul>${actions.map((action) => `<li>${action}</li>`).join("")}</ul><span class="framework-risk-source">建议依据：PDF 中的 2 倍杠杆、6% 融资利率、至少 2 年资金期限和 20% 回撤压力测试原则。</span>`;
+}
+
+function renderLeverageScale(leverage) {
+  const levelEl = document.getElementById("framework-leverage-level");
+  const marker = document.getElementById("framework-leverage-marker");
+  const markerLabel = document.getElementById("framework-leverage-marker-label");
+  const scale = document.getElementById("framework-leverage-scale");
+  if (!levelEl || !marker || !markerLabel || !scale || !leverage) return;
+  const levels = [
+    { max: 1, label: "很安全：无负债" },
+    { max: 1.5, label: "安全：合理负债" },
+    { max: 2, label: "较安全：适当负债" },
+    { max: 2.5, label: "略高风险：高杠杆" },
+    { max: 3, label: "偏高风险：建议降到 2 倍以内" },
+    { max: Infinity, label: "极高风险：极高杠杆" },
+  ];
+  const current = levels.find((level) => leverage <= level.max) || levels.at(-1);
+  levelEl.textContent = current.label;
+  markerLabel.textContent = `${leverage.toFixed(2)} 倍`;
+  const markerPosition = Math.min(100, Math.max(0, ((Math.min(leverage, 5) - 1) / 4) * 100));
+  marker.style.left = `${markerPosition}%`;
+  scale.querySelectorAll(".leverage-level").forEach((item) => {
+    const itemLevel = Number(item.dataset.level);
+    item.classList.toggle("active", leverage <= itemLevel && (itemLevel === 1 || leverage > Number(item.previousElementSibling?.dataset.level || 0)));
+  });
 }
 
 function currentSection() {

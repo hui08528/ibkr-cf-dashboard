@@ -395,6 +395,24 @@
         <div id="framework-risk-alert" class="framework-risk-alert" hidden></div>
       </div>
 
+      <div class="card framework-leverage-card">
+        <div class="card-header">
+          <h3>杠杆风险分级</h3>
+          <span class="data-status" id="framework-leverage-level">等待账户数据</span>
+        </div>
+        <p class="framework-leverage-formula">杠杆倍数 = 总资产 ÷ 净资产；总资产按证券市值加正现金余额计算，负现金作为融资负债。</p>
+        <div class="leverage-scale" id="framework-leverage-scale">
+          <div class="leverage-scale-line"></div>
+          <div class="leverage-marker" id="framework-leverage-marker"><span id="framework-leverage-marker-label">—</span></div>
+          <div class="leverage-level" data-level="1"><strong>1 倍</strong><span>很安全</span><small>无负债</small></div>
+          <div class="leverage-level" data-level="1.5"><strong>1.5 倍</strong><span>安全</span><small>合理负债</small></div>
+          <div class="leverage-level" data-level="2"><strong>2 倍</strong><span>较安全</span><small>适当负债</small></div>
+          <div class="leverage-level" data-level="2.5"><strong>2.5 倍</strong><span>略高风险</span><small>高杠杆</small></div>
+          <div class="leverage-level" data-level="3"><strong>3 倍</strong><span>偏高风险</span><small>建议降到 2 倍以内</small></div>
+          <div class="leverage-level" data-level="5"><strong>5 倍以上</strong><span>极高风险</span><small>极高杠杆</small></div>
+        </div>
+      </div>
+
       <div class="framework-grid">
         <div class="card framework-topic"><h3>1. 投资信念</h3><p>纳斯达克 100 通过定期纳入新公司、剔除弱者，形成持续更新的科技公司组合。指数投资的优势在于把单一公司的不确定性，转化为整个生态系统的长期确定性。</p><p>长期价格的核心驱动是企业盈利持续增长。短期波动难以预测，投资重点应放在企业、制度和生产力，而不是每天的 K 线。</p></div>
         <div class="card framework-topic"><h3>2. 持仓与择时</h3><ul><li>以 QQQ、QQQM 或纳指 100 ETF 作为长期核心资产。</li><li>持续投入、长期持有，避免频繁买卖。</li><li>不主动预测普通的 10%～15% 调整。</li><li>只有在重大系统性危机时，才考虑阶段性降低仓位。</li><li>离场的目的应是等待更好的重新入场，而不是永久看空。</li></ul></div>
