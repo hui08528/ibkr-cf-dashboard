@@ -332,7 +332,7 @@ function applyPortfolio(nextPortfolio, statusText) {
   if (accountId) accountId.textContent = portfolio.account || "IBKR";
 
   renderOverview();
-  renderMonthlyPnlCard();
+  renderMonthlyReturnGrid();
   renderPerformanceChart(currentChartDays());
   renderSectorChart();
   renderTopMovers();
@@ -506,7 +506,7 @@ function showSection(name) {
   pageTitle.textContent = titles[target] || "";
   if (target === "allocation") renderAllocationCharts();
   if (target === "positions") {
-    renderMonthlyPnlCard();
+    renderMonthlyReturnGrid();
     renderPositionsTable(currentPositionFilter(), currentPositionSearch());
   }
   if (target === "transactions") renderTxTable(currentTxFilter());
@@ -865,18 +865,25 @@ function renderMonthlyReturns() {
     if (!validDate(date)) continue;
     byMonth.set(date.slice(0, 7), number(row.value)); // nav 升序，后者即月末值
   }
+  // 当月用实时总资产，与持仓页月度网格保持同一口径
+  const now = new Date();
+  const currentKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  byMonth.set(currentKey, number(totals.totalMarket));
+
   const months = [...byMonth.entries()].sort((a, b) => a[0].localeCompare(b[0]));
   const benchKeys = benchmarkMonthKeys();
+  const flowMap = new Map((portfolio.cashflow?.flows?.byMonth || []).map((row) => [row.month, number(row.amount)]));
 
   const rows = [];
   for (let index = 1; index < months.length; index += 1) {
     const prev = months[index - 1][1];
     const current = months[index][1];
     if (!prev || !current) continue;
+    const netFlow = flowMap.get(months[index][0]) || 0;
     rows.push({
       month: months[index][0],
       endNav: current,
-      ret: ((current - prev) / prev) * 100,
+      ret: ((current - prev - netFlow) / prev) * 100,
       qqq: benchmarkMonthReturn(benchKeys, months[index][0]),
     });
   }
@@ -899,73 +906,56 @@ function renderMonthlyReturns() {
     .join("");
 }
 
-function renderMonthlyPnlCard() {
-  const amountEl = document.getElementById("monthly-pnl-amount");
-  if (!amountEl) return;
-
-  // 当前自然月（本地时区）
-  const now = new Date();
-  const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-  const monthStart = `${monthKey}-01`;
-
-  const nav = portfolio.navSeries;
-  if (!Array.isArray(nav) || nav.length === 0) {
-    renderMonthlyPnlUnavailable("净值历史为空（Flex 查询缺少净值段）");
-    return;
-  }
-
-  // 上月末资产：nav 升序，取最后一个 date < 本月1日 的点
-  let startAsset = 0;
-  let lastNavDate = "";
-  for (const row of nav) {
+// 月度收益率序列：月末净值环比 − 当月净入金（净入金不是收益，须剔除）
+function monthlyReturnRows() {
+  const monthEnds = new Map();
+  for (const row of portfolio.navSeries) {
     const date = String(row.date || "").slice(0, 10);
     if (!validDate(date)) continue;
-    if (date < monthStart) startAsset = number(row.value);
-    if (date > lastNavDate) lastNavDate = date;
+    monthEnds.set(date.slice(0, 7), number(row.value)); // nav 升序，后者即月末值
   }
 
-  const currentAsset = number(totals.totalMarket);
-  if (!currentAsset) {
-    renderMonthlyPnlUnavailable("当前资产缺失");
-    return;
+  // 当月用实时总资产覆盖，得到本月初至今的收益
+  const now = new Date();
+  const currentKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  monthEnds.set(currentKey, number(totals.totalMarket));
+
+  const flowMap = new Map((portfolio.cashflow?.flows?.byMonth || []).map((row) => [row.month, number(row.amount)]));
+
+  const months = [...monthEnds.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  const rows = [];
+  for (let index = 1; index < months.length; index += 1) {
+    const start = months[index - 1][1];
+    const end = months[index][1];
+    if (!start || !end) continue;
+    const netFlow = flowMap.get(months[index][0]) || 0;
+    rows.push({ month: months[index][0], ret: ((end - start - netFlow) / start) * 100 });
   }
-  if (!startAsset) {
-    renderMonthlyPnlUnavailable(`缺少上月末净值（净值最新到 ${lastNavDate || "无有效日期"}）`);
-    return;
-  }
-
-  // 本月净入金：flows.byMonth 中本月条目（正=入金、负=出金）；缺省按 0 计
-  const flowRow = (portfolio.cashflow?.flows?.byMonth || []).find((row) => row.month === monthKey);
-  const netFlow = number(flowRow?.amount);
-
-  // 本月盈亏 = (当前总资产 − 上月末资产) − 本月净入金（股息/费用已含在净值变动内）
-  const monthlyPnl = currentAsset - startAsset - netFlow;
-  const monthlyRate = startAsset ? (monthlyPnl / startAsset) * 100 : 0;
-
-  amountEl.textContent = signedCurrency(monthlyPnl);
-  amountEl.className = `meta-value ${monthlyPnl >= 0 ? "up" : "down"}`;
-
-  const rateEl = document.getElementById("monthly-pnl-rate");
-  rateEl.textContent = signedPercent(monthlyRate);
-  rateEl.className = `meta-value ${monthlyRate >= 0 ? "up" : "down"}`;
-
-  document.getElementById("monthly-pnl-start").textContent = formatCurrency(startAsset);
-  document.getElementById("monthly-pnl-current").textContent = formatCurrency(currentAsset);
-  document.getElementById("monthly-pnl-flow").textContent = signedCurrency(netFlow);
+  return rows;
 }
 
-function renderMonthlyPnlUnavailable(label) {
-  const placeholders = [
-    ["monthly-pnl-amount", label],
-    ["monthly-pnl-rate", "—"],
-    ["monthly-pnl-start", "—"],
-    ["monthly-pnl-current", "—"],
-    ["monthly-pnl-flow", "—"],
-  ];
-  for (const [id, text] of placeholders) {
-    const element = document.getElementById(id);
-    if (element) element.textContent = text;
+function renderMonthlyReturnGrid() {
+  const grid = document.getElementById("monthly-return-grid");
+  if (!grid) return;
+
+  const rows = monthlyReturnRows();
+  const summaryEl = document.getElementById("monthly-grid-summary");
+  if (rows.length === 0) {
+    grid.innerHTML = `<div class="empty-cell">净值历史数据不足（需至少 2 个净值点）</div>`;
+    if (summaryEl) summaryEl.textContent = "—";
+    return;
   }
+
+  const recent = rows.slice(-12);
+  const positive = recent.filter((row) => row.ret > 0).length;
+  if (summaryEl) summaryEl.textContent = `${positive}/${recent.length} 个上涨月 · 最近12个月`;
+
+  grid.innerHTML = recent.reverse().map((row) => `
+    <div class="month-cell">
+      <span class="month-label">${row.month}</span>
+      <strong class="month-ret ${row.ret >= 0 ? "pnl-up" : "pnl-down"}">${row.ret >= 0 ? "+" : ""}${row.ret.toFixed(1)}%</strong>
+    </div>
+  `).join("");
 }
 
 function benchmarkMonthKeys() {

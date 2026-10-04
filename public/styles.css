@@ -541,6 +541,43 @@ body {
 .pnl-up { color: var(--up); }
 .pnl-down { color: var(--down); }
 
+/* Monthly return grid (positions) */
+.card-grid-summary {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.monthly-return-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
+  gap: 10px;
+  padding: 4px 20px 20px;
+}
+
+.monthly-return-grid .month-cell {
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  text-align: center;
+}
+
+.monthly-return-grid .month-cell .month-label {
+  display: block;
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+
+.monthly-return-grid .month-cell .month-ret {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.monthly-return-grid .empty-cell {
+  grid-column: 1 / -1;
+}
+
 /* Tx type badges */
 .tx-badge {
   display: inline-block;
