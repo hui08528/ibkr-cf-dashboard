@@ -893,12 +893,6 @@ body {
   color: var(--text-muted);
 }
 
-.framework-actions {
-  display: flex;
-  gap: 10px;
-  margin-top: 18px;
-}
-
 .btn-secondary {
   background: var(--surface-alt);
   color: var(--text-primary);
