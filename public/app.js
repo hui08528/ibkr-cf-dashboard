@@ -691,7 +691,7 @@ function renderAllocationCharts(force = false) {
   const minorHoldingsValue = holdingRows
     .filter((position) => allocationBase <= 0 || position.marketValue / allocationBase < 0.1)
     .reduce((sum, position) => sum + position.marketValue, 0);
-  const holdingMix = Object.fromEntries(majorHoldings.map((position) => [`${position.name || position.symbol} (${position.symbol})`, position.marketValue]));
+  const holdingMix = Object.fromEntries(majorHoldings.map((position) => [position.symbol, position.marketValue]));
   if (minorHoldingsValue > 0) holdingMix["其他"] = minorHoldingsValue;
   const colors = chartColors();
 
@@ -712,6 +712,7 @@ function renderAllocationCharts(force = false) {
 function pieChart(id, data, backgroundColor, colors, showWeights = false, weightBase = totals.totalMarket) {
   return new Chart(document.getElementById(id), {
     type: "pie",
+    plugins: [pieSliceLabelsPlugin],
     data: { labels: Object.keys(data), datasets: [{ data: Object.values(data), backgroundColor, borderWidth: 2 }] },
     options: {
       responsive: true,
@@ -734,11 +735,39 @@ function pieChart(id, data, backgroundColor, colors, showWeights = false, weight
             } : {}),
           },
         },
+        pieSliceLabels: { weightBase },
         tooltip: { callbacks: { label: (item) => ` ${item.label}: ${formatCurrency(item.parsed)}（权重 ${percent(item.parsed, weightBase)}）` } },
       },
     },
   });
 }
+
+const pieSliceLabelsPlugin = {
+  id: "pieSliceLabels",
+  afterDatasetsDraw(chart) {
+    const meta = chart.getDatasetMeta(0);
+    const dataset = chart.data.datasets[0];
+    const ctx = chart.ctx;
+    ctx.save();
+    ctx.fillStyle = "#fff";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.font = "600 11px sans-serif";
+    meta.data.forEach((arc, index) => {
+      const angle = arc.endAngle - arc.startAngle;
+      if (angle < 0.18) return;
+      const point = arc.getCenterPoint();
+      const label = chart.data.labels[index];
+      const weight = percent(dataset.data[index], chart.options.plugins?.pieSliceLabels?.weightBase || totals.totalMarket);
+      const shortLabel = label.length > 22 ? `${label.slice(0, 20)}…` : label;
+      ctx.fillText(shortLabel, point.x, point.y - 7);
+      ctx.font = "11px sans-serif";
+      ctx.fillText(weight, point.x, point.y + 9);
+      ctx.font = "600 11px sans-serif";
+    });
+    ctx.restore();
+  },
+};
 
 function renderTopHoldings(holdingRows = [...positions].map((position) => ({ ...position, marketValue: positionMarketValue(position) })).sort((a, b) => b.marketValue - a.marketValue)) {
   const topHoldings = holdingRows.slice(0, 10).sort((a, b) => pnlRateForPosition(b) - pnlRateForPosition(a));
