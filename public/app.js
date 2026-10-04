@@ -73,8 +73,7 @@ const dataStatus = document.getElementById("data-status");
 const accountId = document.querySelector(".account-id");
 const titles = {
   overview: "投资组合概览",
-  positions: "持仓明细",
-  allocation: "资产配置",
+  positions: "投资组合",
   transactions: "交易记录",
   analytics: "收益分析",
   insights: "市场洞察",
@@ -514,8 +513,8 @@ function showSection(name) {
   navItems.forEach((item) => item.classList.toggle("active", item.dataset.target === target));
   sections.forEach((section) => section.classList.toggle("active", section.id === `section-${target}`));
   pageTitle.textContent = titles[target] || "";
-  if (target === "allocation") renderAllocationCharts();
   if (target === "positions") {
+    renderAllocationCharts();
     renderMonthlyReturnGrid();
     renderPositionsTable(currentPositionFilter(), currentPositionSearch());
   }
@@ -681,7 +680,7 @@ function renderPositionsTable(filter = "all", search = "") {
 }
 
 function renderAllocationCharts(force = false) {
-  if (!force && !document.getElementById("section-allocation").classList.contains("active")) return;
+  if (!force && !document.getElementById("section-positions").classList.contains("active")) return;
 
   const typeData = groupByValue([...positions, cash], (position) => ({ stock: "股票", etf: "ETF", option: "期权", cash: "现金" }[position.type] || position.type), positionMarketValue);
   const regionData = groupByValue([...positions, cash], (position) => ({ US: "美国", CN: "中国", HK: "香港", EU: "欧洲" }[position.region] || position.region), positionMarketValue);

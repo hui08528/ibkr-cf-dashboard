@@ -17,10 +17,7 @@
         <span class="nav-icon">📊</span> 概览
       </a>
       <a href="#positions" class="nav-item" data-target="positions">
-        <span class="nav-icon">💼</span> 持仓
-      </a>
-      <a href="#allocation" class="nav-item" data-target="allocation">
-        <span class="nav-icon">🥧</span> 资产配置
+        <span class="nav-icon">💼</span> 投资组合
       </a>
       <a href="#transactions" class="nav-item" data-target="transactions">
         <span class="nav-icon">📝</span> 交易记录
@@ -148,6 +145,26 @@
 
     <!-- Positions Section -->
     <section id="section-positions" class="section">
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-header"><h3>资产类别分布</h3></div>
+          <div class="chart-container" style="height: 340px;">
+            <canvas id="asset-class-chart"></canvas>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header"><h3>地区分布</h3></div>
+          <div class="chart-container" style="height: 340px;">
+            <canvas id="region-chart"></canvas>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header"><h3>十大重仓</h3></div>
+        <div class="top-holdings" id="top-holdings"></div>
+      </div>
+
       <div class="card">
         <div class="card-header">
           <h3>月度收益</h3>
@@ -194,29 +211,6 @@
             <tbody id="positions-body"></tbody>
           </table>
         </div>
-      </div>
-    </section>
-
-    <!-- Allocation Section -->
-    <section id="section-allocation" class="section">
-      <div class="grid-2">
-        <div class="card">
-          <div class="card-header"><h3>资产类别分布</h3></div>
-          <div class="chart-container" style="height: 340px;">
-            <canvas id="asset-class-chart"></canvas>
-          </div>
-        </div>
-        <div class="card">
-          <div class="card-header"><h3>地区分布</h3></div>
-          <div class="chart-container" style="height: 340px;">
-            <canvas id="region-chart"></canvas>
-          </div>
-        </div>
-      </div>
-
-      <div class="card">
-        <div class="card-header"><h3>十大重仓</h3></div>
-        <div class="top-holdings" id="top-holdings"></div>
       </div>
     </section>
 
