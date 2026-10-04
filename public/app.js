@@ -592,7 +592,18 @@ function renderLeverageScale(leverage) {
   const current = levels.find((level) => leverage <= level.max) || levels.at(-1);
   levelEl.textContent = current.label;
   markerLabel.textContent = `${leverage.toFixed(2)} 倍`;
-  const markerPosition = Math.min(100, Math.max(0, ((Math.min(leverage, 5) - 1) / 4) * 100));
+  const scalePoints = [1, 1.5, 2, 2.5, 3, 5];
+  const scalePositions = scalePoints.map((_, index) => (index + 0.5) / scalePoints.length * 100);
+  const cappedLeverage = Math.min(Math.max(leverage, scalePoints[0]), scalePoints.at(-1));
+  let markerPosition = scalePositions[0];
+  for (let index = 1; index < scalePoints.length; index += 1) {
+    if (cappedLeverage <= scalePoints[index]) {
+      const segmentStart = scalePoints[index - 1];
+      const segmentRatio = (cappedLeverage - segmentStart) / (scalePoints[index] - segmentStart);
+      markerPosition = scalePositions[index - 1] + segmentRatio * (scalePositions[index] - scalePositions[index - 1]);
+      break;
+    }
+  }
   marker.style.left = `${markerPosition}%`;
   scale.querySelectorAll(".leverage-level").forEach((item) => {
     const itemLevel = Number(item.dataset.level);
