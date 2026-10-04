@@ -910,21 +910,27 @@ function renderMonthlyPnlCard() {
 
   const nav = portfolio.navSeries;
   if (!Array.isArray(nav) || nav.length === 0) {
-    renderMonthlyPnlUnavailable("数据不足");
+    renderMonthlyPnlUnavailable("净值历史为空（Flex 查询缺少净值段）");
     return;
   }
 
   // 上月末资产：nav 升序，取最后一个 date < 本月1日 的点
   let startAsset = 0;
+  let lastNavDate = "";
   for (const row of nav) {
     const date = String(row.date || "").slice(0, 10);
     if (!validDate(date)) continue;
     if (date < monthStart) startAsset = number(row.value);
+    if (date > lastNavDate) lastNavDate = date;
   }
 
   const currentAsset = number(totals.totalMarket);
-  if (!startAsset || !currentAsset) {
-    renderMonthlyPnlUnavailable("数据不足");
+  if (!currentAsset) {
+    renderMonthlyPnlUnavailable("当前资产缺失");
+    return;
+  }
+  if (!startAsset) {
+    renderMonthlyPnlUnavailable(`缺少上月末净值（净值最新到 ${lastNavDate || "无有效日期"}）`);
     return;
   }
 
