@@ -333,6 +333,7 @@ function applyPortfolio(nextPortfolio, statusText) {
   if (accountId) accountId.textContent = portfolio.account || "IBKR";
 
   renderOverview();
+  renderFrameworkAnalysis();
   renderMonthlyReturnGrid();
   renderPerformanceChart(currentChartDays());
   renderSectorChart();
@@ -347,6 +348,7 @@ function applyPortfolio(nextPortfolio, statusText) {
 function normalizePortfolio(input) {
   return {
     source: input?.source || demoData.source,
+    updatedAt: input?.updatedAt || "",
     account: input?.account || demoData.account,
     baseCurrency: input?.baseCurrency || demoData.baseCurrency,
     summary: input?.summary || {},
@@ -519,9 +521,40 @@ function showSection(name) {
     renderMonthlyReturnGrid();
     renderPositionsTable(currentPositionFilter(), currentPositionSearch());
   }
+  if (target === "framework") renderFrameworkAnalysis();
   if (target === "transactions") renderTxTable(currentTxFilter());
   if (target === "analytics") renderAnalytics();
   if (target === "insights") renderInsights();
+}
+
+function renderFrameworkAnalysis() {
+  const summary = portfolio.summary || {};
+  const securities = number(summary.securitiesMarketValue) || positions.reduce((sum, position) => sum + positionMarketValue(position), 0);
+  const nav = number(summary.netAssetValue) || totals.totalMarket || 0;
+  const cashValue = number(summary.cash);
+  const debt = Math.max(0, -cashValue);
+  const leverage = nav > 0 ? securities / nav : 0;
+  const debtRatio = nav > 0 ? debt / nav : 0;
+  const largest = [...positions].map((position) => positionMarketValue(position)).sort((a, b) => b - a)[0] || 0;
+  const concentration = securities > 0 ? largest / securities : 0;
+  const setText = (id, value) => { const el = document.getElementById(id); if (el) el.textContent = value; };
+  setText("framework-nav", formatCurrency(nav));
+  setText("framework-securities", formatCurrency(securities));
+  setText("framework-debt", formatCurrency(debt));
+  setText("framework-leverage", nav > 0 ? `${leverage.toFixed(2)} 倍` : "—");
+  setText("framework-debt-ratio", nav > 0 ? percent(debt, nav) : "—");
+  setText("framework-concentration", securities > 0 ? percent(concentration * securities, securities) : "—");
+  const status = document.getElementById("framework-account-status");
+  if (status) status.textContent = portfolio.source === "ibkr-flex" ? `IBKR Flex · ${portfolio.updatedAt ? new Date(portfolio.updatedAt).toLocaleString("zh-CN") : "已同步"}` : "Demo 数据";
+  const alert = document.getElementById("framework-risk-alert");
+  if (!alert) return;
+  const messages = [];
+  if (debt > 0) messages.push(`当前存在融资余额 ${formatCurrency(debt)}。`);
+  if (leverage > 2) messages.push(`账户杠杆约 ${leverage.toFixed(2)} 倍，已超过框架中建议的 2 倍以内。`);
+  else if (leverage > 1.5) messages.push(`账户杠杆约 ${leverage.toFixed(2)} 倍，处于需要重点关注的区间。`);
+  if (concentration >= 0.5) messages.push(`最大单一持仓占证券市值 ${percent(concentration * securities, securities)}，集中度较高。`);
+  alert.hidden = messages.length === 0;
+  alert.textContent = messages.length ? `风险提示：${messages.join(" ")}` : "当前未发现融资或集中度提示。";
 }
 
 function currentSection() {

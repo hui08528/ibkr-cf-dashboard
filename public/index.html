@@ -370,7 +370,6 @@
         <p>这是一套围绕纳斯达克 100 的长期投资笔记：以制度、企业盈利和指数优胜劣汰为长期逻辑，减少短期择时，并对回撤、杠杆和 ETF 溢价设定纪律。</p>
         <div class="framework-actions">
           <a class="btn" href="assets/纳指框架体系.pdf" target="_blank" rel="noopener">查看原始 PDF</a>
-          <a class="btn btn-secondary" href="assets/纳指框架体系.pdf" download>下载 PDF</a>
         </div>
       </div>
 
@@ -378,6 +377,22 @@
         <div class="card framework-summary"><div class="framework-kicker">核心信念</div><h4>长期做多生产力</h4><p>相信美国制度、科技创新和优质企业盈利的长期增长。</p></div>
         <div class="card framework-summary"><div class="framework-kicker">核心策略</div><h4>持续投入，减少择时</h4><p>普通回调坚持计划，只有系统性风险才考虑阶段性降仓。</p></div>
         <div class="card framework-summary"><div class="framework-kicker">风险纪律</div><h4>杠杆需谨慎</h4><p>先做回撤压力测试，再考虑长期资金、低利率和适度融资。</p></div>
+      </div>
+
+      <div class="card framework-account-card">
+        <div class="card-header">
+          <h3>当前账户对照</h3>
+          <span class="data-status" id="framework-account-status">等待组合数据</span>
+        </div>
+        <div class="framework-account-grid">
+          <div><span>净资产</span><strong id="framework-nav">—</strong></div>
+          <div><span>证券市值</span><strong id="framework-securities">—</strong></div>
+          <div><span>融资余额</span><strong id="framework-debt">—</strong></div>
+          <div><span>账户杠杆</span><strong id="framework-leverage">—</strong></div>
+          <div><span>负债/净资产</span><strong id="framework-debt-ratio">—</strong></div>
+          <div><span>最大持仓权重</span><strong id="framework-concentration">—</strong></div>
+        </div>
+        <div id="framework-risk-alert" class="framework-risk-alert" hidden></div>
       </div>
 
       <div class="framework-grid">
