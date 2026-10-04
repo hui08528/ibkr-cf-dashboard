@@ -704,6 +704,7 @@ function renderAllocationCharts(force = false) {
     colors,
     true,
   );
+  renderTopHoldings(holdingRows);
 }
 
 function pieChart(id, data, backgroundColor, colors, showWeights = false) {
@@ -735,6 +736,22 @@ function pieChart(id, data, backgroundColor, colors, showWeights = false) {
       },
     },
   });
+}
+
+function renderTopHoldings(holdingRows = [...positions].map((position) => ({ ...position, marketValue: positionMarketValue(position) })).sort((a, b) => b.marketValue - a.marketValue)) {
+  const topHoldings = holdingRows.slice(0, 10);
+  const maxMv = topHoldings[0]?.marketValue || 1;
+  document.getElementById("top-holdings").innerHTML = topHoldings.map((position, index) => `
+    <div class="holding-row">
+      <div class="holding-rank">${index + 1}</div>
+      <div class="holding-info">
+        <div class="holding-sym">${escapeHtml(position.symbol)}</div>
+        <div class="holding-name">${escapeHtml(position.name)}</div>
+      </div>
+      <div class="holding-bar-wrap"><div class="holding-bar" style="width: ${(position.marketValue / maxMv) * 100}%"></div></div>
+      <div class="holding-pct">${percent(position.marketValue, totals.totalMarket)}</div>
+    </div>
+  `).join("");
 }
 
 function renderTxTable(filter = "all") {
