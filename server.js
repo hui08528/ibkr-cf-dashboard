@@ -6,6 +6,7 @@ import { onRequestGet as portfolioHandler } from "./functions/api/portfolio.js";
 import { onRequestGet as earningsHandler } from "./functions/api/earnings.js";
 import { onRequestGet as marketHandler } from "./functions/api/market.js";
 import { onRequestGet as benchmarkHandler } from "./functions/api/benchmark.js";
+import { onRequestGet as fearGreedHandler } from "./functions/api/fear-greed.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -43,6 +44,7 @@ app.get("/api/portfolio", toExpress(portfolioHandler));
 app.get("/api/earnings", toExpress(earningsHandler));
 app.get("/api/market", toExpress(marketHandler));
 app.get("/api/benchmark", toExpress(benchmarkHandler));
+app.get("/api/fear-greed", toExpress(fearGreedHandler));
 
 // —— 静态资源：默认 public, max-age=0 + ETag，不设长缓存（前端文件无版本 hash） ——
 app.use(

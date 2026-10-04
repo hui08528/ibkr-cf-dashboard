@@ -56,6 +56,8 @@ let popularEarningsBySymbol = {};
 let popularEarningsStatus = "idle";
 let marketQuotes = [];
 let marketStatus = "idle";
+let fearGreed = null;
+let fearGreedStatus = "idle";
 let benchmarkData = null;
 let benchmarkStatus = "idle";
 let monthlyReturnMode = "rate"; // 月度收益网格展示模式："rate"=收益率 / "amount"=收益额
@@ -219,6 +221,7 @@ async function loadPopularEarnings(forceRefresh = false) {
 }
 
 function renderInsights() {
+  renderFearGreed();
   renderInsightsTable();
   renderMarketSnapshot();
   if (popularEarningsStatus === "idle" || popularEarningsStatus === "unavailable") {
@@ -227,6 +230,181 @@ function renderInsights() {
   if (marketStatus === "idle" || marketStatus === "unavailable") {
     loadMarketSnapshot();
   }
+  if (fearGreedStatus === "idle" || fearGreedStatus === "unavailable") {
+    loadFearGreed();
+  }
+}
+
+async function loadFearGreed() {
+  fearGreedStatus = "loading";
+  renderFearGreed();
+
+  try {
+    const response = await fetch("/api/fear-greed", { headers: { Accept: "application/json" } });
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      throw new Error(body.message || `Fear & Greed API failed with ${response.status}`);
+    }
+    const body = await response.json();
+    fearGreed = body;
+    fearGreedStatus = "ready";
+  } catch (error) {
+    console.warn(error);
+    fearGreed = null;
+    fearGreedStatus = "unavailable";
+  }
+
+  renderFearGreed();
+}
+
+function renderFearGreed() {
+  const body = document.getElementById("fear-greed-body");
+  const status = document.getElementById("fear-greed-status");
+  if (!body) return;
+
+  if (status) {
+    const statusText = {
+      idle: "",
+      loading: "正在加载指数...",
+      ready: "CNN 已更新",
+      unavailable: "指数暂不可用",
+    };
+    if (fearGreedStatus === "ready" && fearGreed?.updatedAt) {
+      const updated = new Date(fearGreed.updatedAt);
+      if (!Number.isNaN(updated.getTime())) {
+        statusText.ready = `更新于 ${updated.toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}`;
+      }
+    }
+    status.textContent = statusText[fearGreedStatus] || "";
+  }
+
+  if (fearGreedStatus === "loading") {
+    body.innerHTML = `<div class="empty-cell">正在加载恐慌与贪婪指数...</div>`;
+    return;
+  }
+  if (fearGreedStatus === "unavailable" || !fearGreed?.index) {
+    body.innerHTML = `<div class="empty-cell">恐慌与贪婪指数暂不可用，请稍后刷新。</div>`;
+    return;
+  }
+
+  const idx = fearGreed.index;
+  const components = Array.isArray(fearGreed.components) ? fearGreed.components : [];
+  const score = clampScore(idx.score);
+  const gauge = buildFearGreedGauge(score);
+  const trend = buildFearGreedTrend(score, idx);
+  const rows = components.map((item) => buildFearGreedComponent(item)).join("");
+
+  body.innerHTML = `
+    <div class="fg-layout">
+      <div class="fg-gauge-wrap">${gauge}</div>
+      <div class="fg-main">
+        <div class="fg-score-row">
+          <span class="fg-score">${escapeHtml(fearGreedScoreLabel(idx.score))}</span>
+          <span class="fg-rating fg-zone-${zoneKey(idx.rating)}">${escapeHtml(idx.ratingCn || idx.rating || "—")}</span>
+        </div>
+        <div class="fg-trend">${trend}</div>
+        <div class="fg-scale">0 极度恐惧 · 50 中性 · 100 极度贪婪</div>
+      </div>
+    </div>
+    <div class="fg-components">
+      <div class="fg-components-head">
+        <h4>7 项细分指标（等权平均）</h4>
+        <span class="muted-note">每项指标按相对历史均值的偏离标准化到 0–100</span>
+      </div>
+      <div class="fg-components-list">${rows || `<div class="empty-cell">暂无细分指标</div>`}</div>
+    </div>
+  `;
+}
+
+// —— 恐慌与贪婪仪表盘：半圆 0-100，左恐惧右贪婪，针指向当前分数 ——
+function buildFearGreedGauge(score) {
+  const cx = 120;
+  const cy = 126;
+  const radius = 92;
+  const band = 22;
+  const zones = [
+    { from: 0, to: 25, cls: "fg-zone-xfear" },
+    { from: 25, to: 45, cls: "fg-zone-fear" },
+    { from: 45, to: 55, cls: "fg-zone-neutral" },
+    { from: 55, to: 75, cls: "fg-zone-greed" },
+    { from: 75, to: 100, cls: "fg-zone-xgreed" },
+  ];
+  const paths = zones
+    .map((zone) => `<path d="${fgArcPath(cx, cy, radius, zone.from, zone.to)}" class="${zone.cls}" />`)
+    .join("");
+  const needleDeg = (score - 50) * 1.8;
+  const needleLength = radius - band / 2 - 8;
+  return `
+    <svg viewBox="0 0 240 150" role="img" aria-label="恐慌与贪婪指数 ${fearGreedScoreLabel(score)}">
+      ${paths}
+      <g class="fg-needle" transform="rotate(${needleDeg} ${cx} ${cy})">
+        <line x1="${cx}" y1="${cy}" x2="${cx}" y2="${cy - needleLength}" />
+      </g>
+      <circle cx="${cx}" cy="${cy}" r="15" class="fg-hub" />
+    </svg>
+  `;
+}
+
+function fgArcPath(cx, cy, radius, fromScore, toScore) {
+  const start = fgPointOnArc(cx, cy, radius, fromScore);
+  const end = fgPointOnArc(cx, cy, radius, toScore);
+  return `M ${start.x} ${start.y} A ${radius} ${radius} 0 0 1 ${end.x} ${end.y}`;
+}
+
+function fgPointOnArc(cx, cy, radius, score) {
+  const radians = ((180 - score * 1.8) * Math.PI) / 180;
+  return {
+    x: +(cx + radius * Math.cos(radians)).toFixed(2),
+    y: +(cy - radius * Math.sin(radians)).toFixed(2),
+  };
+}
+
+function buildFearGreedTrend(current, idx) {
+  const refs = [
+    { label: "前日", value: idx.previousClose },
+    { label: "1周", value: idx.previous1Week },
+    { label: "1月", value: idx.previous1Month },
+    { label: "1年", value: idx.previous1Year },
+  ];
+  return refs
+    .map((ref) => {
+      const refScore = clampScore(ref.value);
+      const delta = current - refScore;
+      const arrow = delta >= 0 ? "▲" : "▼";
+      const cls = delta >= 0 ? "fg-up" : "fg-down";
+      return `<span class="${cls}" title="${escapeHtml(ref.label)}相对当前">${escapeHtml(ref.label)} ${fearGreedScoreLabel(ref.value)} ${arrow}</span>`;
+    })
+    .join("");
+}
+
+function buildFearGreedComponent(item) {
+  const zone = zoneKey(item.rating);
+  const width = clampScore(item.score);
+  return `
+    <div class="fg-component">
+      <div class="fg-comp-head">
+        <span class="fg-comp-name">${escapeHtml(item.name)}</span>
+        <span class="fg-comp-rating fg-zone-${zone}">${escapeHtml(item.ratingCn || item.rating || "—")}</span>
+        <span class="fg-comp-score">${fearGreedScoreLabel(item.score)}</span>
+      </div>
+      <div class="fg-comp-track"><div class="fg-comp-fill fg-zone-${zone}" style="width: ${width}%"></div></div>
+    </div>
+  `;
+}
+
+function zoneKey(rating) {
+  const map = { "extreme fear": "xfear", fear: "fear", neutral: "neutral", greed: "greed", "extreme greed": "xgreed" };
+  return map[String(rating || "").toLowerCase()] || "neutral";
+}
+
+function clampScore(value) {
+  const num = number(value);
+  return Math.min(Math.max(num, 0), 100);
+}
+
+function fearGreedScoreLabel(value) {
+  const num = number(value);
+  return Number.isFinite(num) ? num.toFixed(1) : "—";
 }
 
 function renderInsightsTable() {
