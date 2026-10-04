@@ -574,6 +574,11 @@ body {
   font-weight: 700;
 }
 
+.monthly-return-grid .month-cell .month-ret.month-empty {
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
 .monthly-return-grid .empty-cell {
   grid-column: 1 / -1;
 }

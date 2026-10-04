@@ -58,6 +58,7 @@ let marketQuotes = [];
 let marketStatus = "idle";
 let benchmarkData = null;
 let benchmarkStatus = "idle";
+let monthlyReturnMode = "rate"; // 月度收益网格展示模式："rate"=收益率 / "amount"=收益额
 let perfChart;
 let sectorChart;
 let assetClassChart;
@@ -452,6 +453,15 @@ function wireControls() {
       document.querySelectorAll("#bench-tabs .chart-tab").forEach((item) => item.classList.remove("active"));
       tab.classList.add("active");
       renderBenchmarkChart(benchmarkDays());
+    });
+  });
+
+  document.querySelectorAll("#monthly-mode-tabs .chart-tab").forEach((tab) => {
+    tab.addEventListener("click", () => {
+      document.querySelectorAll("#monthly-mode-tabs .chart-tab").forEach((item) => item.classList.remove("active"));
+      tab.classList.add("active");
+      monthlyReturnMode = tab.dataset.mode === "amount" ? "amount" : "rate";
+      renderMonthlyReturnGrid();
     });
   });
 
@@ -906,7 +916,7 @@ function renderMonthlyReturns() {
     .join("");
 }
 
-// 月度收益率序列：月末净值环比 − 当月净入金（净入金不是收益，须剔除）
+// 月度收益序列：月末净值环比 − 当月净入金（净入金不是收益，须剔除），返回收益率(%)与收益额
 function monthlyReturnRows() {
   const monthEnds = new Map();
   for (const row of portfolio.navSeries) {
@@ -929,7 +939,8 @@ function monthlyReturnRows() {
     const end = months[index][1];
     if (!start || !end) continue;
     const netFlow = flowMap.get(months[index][0]) || 0;
-    rows.push({ month: months[index][0], ret: ((end - start - netFlow) / start) * 100 });
+    const amount = end - start - netFlow;
+    rows.push({ month: months[index][0], amount, ret: (amount / start) * 100 });
   }
   return rows;
 }
@@ -938,24 +949,61 @@ function renderMonthlyReturnGrid() {
   const grid = document.getElementById("monthly-return-grid");
   if (!grid) return;
 
-  const rows = monthlyReturnRows();
   const summaryEl = document.getElementById("monthly-grid-summary");
+  const rows = monthlyReturnRows();
   if (rows.length === 0) {
     grid.innerHTML = `<div class="empty-cell">净值历史数据不足（需至少 2 个净值点）</div>`;
     if (summaryEl) summaryEl.textContent = "—";
     return;
   }
 
-  const recent = rows.slice(-12);
-  const positive = recent.filter((row) => row.ret > 0).length;
-  if (summaryEl) summaryEl.textContent = `${positive}/${recent.length} 个上涨月 · 最近12个月`;
+  // 当前自然年 1-12 月，固定 12 格、按顺序排列；无数据月份显示 "—"
+  const now = new Date();
+  const year = now.getFullYear();
+  const byMonth = new Map(rows.map((row) => [row.month, row]));
+  const cells = [];
+  for (let month = 1; month <= 12; month += 1) {
+    const key = `${year}-${String(month).padStart(2, "0")}`;
+    cells.push({ key, row: byMonth.get(key) || null });
+  }
 
-  grid.innerHTML = recent.reverse().map((row) => `
-    <div class="month-cell">
-      <span class="month-label">${row.month}</span>
-      <strong class="month-ret ${row.ret >= 0 ? "pnl-up" : "pnl-down"}">${row.ret >= 0 ? "+" : ""}${row.ret.toFixed(1)}%</strong>
-    </div>
-  `).join("");
+  const withData = cells.filter((cell) => cell.row);
+  const positive = withData.filter((cell) => cell.row.ret > 0).length;
+  if (summaryEl) summaryEl.textContent = withData.length ? `${positive}/${withData.length} 个上涨月 · ${year}年` : `${year}年暂无数据`;
+
+  grid.innerHTML = cells.map(({ key, row }) => {
+    const label = `${Number(key.slice(5, 7))}月`;
+    if (!row) {
+      return `
+        <div class="month-cell">
+          <span class="month-label">${label}</span>
+          <strong class="month-ret month-empty">—</strong>
+        </div>
+      `;
+    }
+    const value =
+      monthlyReturnMode === "amount"
+        ? formatCompactSigned(row.amount)
+        : `${row.ret >= 0 ? "+" : ""}${row.ret.toFixed(1)}%`;
+    return `
+      <div class="month-cell">
+        <span class="month-label">${label}</span>
+        <strong class="month-ret ${row.ret >= 0 ? "pnl-up" : "pnl-down"}">${value}</strong>
+      </div>
+    `;
+  }).join("");
+}
+
+function formatCompactSigned(value) {
+  const num = number(value);
+  const sign = num >= 0 ? "+" : "-";
+  const formatted = new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: portfolio.baseCurrency || "USD",
+    notation: "compact",
+    maximumFractionDigits: 1,
+  }).format(Math.abs(num));
+  return `${sign}${formatted}`;
 }
 
 function benchmarkMonthKeys() {

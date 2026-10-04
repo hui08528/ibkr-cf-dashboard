@@ -151,7 +151,13 @@
       <div class="card">
         <div class="card-header">
           <h3>月度收益</h3>
-          <div class="card-grid-summary" id="monthly-grid-summary">—</div>
+          <div class="card-tools">
+            <span class="card-grid-summary" id="monthly-grid-summary">—</span>
+            <div class="chart-tabs" id="monthly-mode-tabs">
+              <button class="chart-tab active" data-mode="rate">收益率</button>
+              <button class="chart-tab" data-mode="amount">收益额</button>
+            </div>
+          </div>
         </div>
         <div class="monthly-return-grid" id="monthly-return-grid"></div>
       </div>
