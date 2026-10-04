@@ -683,12 +683,13 @@ function renderAllocationCharts(force = false) {
   if (!force && !document.getElementById("section-positions").classList.contains("active")) return;
 
   const typeData = groupByValue([...positions, cash], (position) => ({ stock: "股票", etf: "ETF", option: "期权", cash: "现金" }[position.type] || position.type), positionMarketValue);
+  const allocationBase = [...positions, cash].reduce((sum, position) => sum + positionMarketValue(position), 0);
   const holdingRows = [...positions]
     .map((position) => ({ ...position, marketValue: positionMarketValue(position) }))
     .sort((a, b) => b.marketValue - a.marketValue);
-  const majorHoldings = holdingRows.filter((position) => totals.totalMarket > 0 && position.marketValue / totals.totalMarket >= 0.1);
+  const majorHoldings = holdingRows.filter((position) => allocationBase > 0 && position.marketValue / allocationBase >= 0.1);
   const minorHoldingsValue = holdingRows
-    .filter((position) => totals.totalMarket <= 0 || position.marketValue / totals.totalMarket < 0.1)
+    .filter((position) => allocationBase <= 0 || position.marketValue / allocationBase < 0.1)
     .reduce((sum, position) => sum + position.marketValue, 0);
   const holdingMix = Object.fromEntries(majorHoldings.map((position) => [`${position.name || position.symbol} (${position.symbol})`, position.marketValue]));
   if (minorHoldingsValue > 0) holdingMix["其他"] = minorHoldingsValue;
@@ -703,11 +704,12 @@ function renderAllocationCharts(force = false) {
     ["#2563eb", "#ef4444", "#10b981", "#8b5cf6", "#f59e0b", "#06b6d4", "#ec4899", "#84cc16", "#f97316", "#6366f1"],
     colors,
     true,
+    allocationBase,
   );
   renderTopHoldings(holdingRows);
 }
 
-function pieChart(id, data, backgroundColor, colors, showWeights = false) {
+function pieChart(id, data, backgroundColor, colors, showWeights = false, weightBase = totals.totalMarket) {
   return new Chart(document.getElementById(id), {
     type: "pie",
     data: { labels: Object.keys(data), datasets: [{ data: Object.values(data), backgroundColor, borderWidth: 2 }] },
@@ -726,13 +728,13 @@ function pieChart(id, data, backgroundColor, colors, showWeights = false) {
                 const labels = Chart.defaults.plugins.legend.labels.generateLabels(chart);
                 return labels.map((item) => ({
                   ...item,
-                  text: `${item.text} ${percent(chart.data.datasets[0].data[item.index], totals.totalMarket)}`,
+                  text: `${item.text} 权重 ${percent(chart.data.datasets[0].data[item.index], weightBase)}`,
                 }));
               },
             } : {}),
           },
         },
-        tooltip: { callbacks: { label: (item) => ` ${item.label}: ${formatCurrency(item.parsed)} (${percent(item.parsed, totals.totalMarket)})` } },
+        tooltip: { callbacks: { label: (item) => ` ${item.label}: ${formatCurrency(item.parsed)}（权重 ${percent(item.parsed, weightBase)}）` } },
       },
     },
   });
