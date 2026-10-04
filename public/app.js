@@ -741,14 +741,14 @@ function pieChart(id, data, backgroundColor, colors, showWeights = false, weight
 }
 
 function renderTopHoldings(holdingRows = [...positions].map((position) => ({ ...position, marketValue: positionMarketValue(position) })).sort((a, b) => b.marketValue - a.marketValue)) {
-  const topHoldings = holdingRows.slice(0, 10);
+  const topHoldings = holdingRows.slice(0, 10).sort((a, b) => pnlRateForPosition(b) - pnlRateForPosition(a));
   const maxMv = topHoldings[0]?.marketValue || 1;
   document.getElementById("top-holdings").innerHTML = topHoldings.map((position, index) => `
     <div class="holding-row">
       <div class="holding-rank">${index + 1}</div>
       <div class="holding-info">
-        <div class="holding-sym">${escapeHtml(position.symbol)}</div>
         <div class="holding-name">${escapeHtml(companyChineseName(position.symbol, position.name))}</div>
+        <div class="holding-sym">${escapeHtml(position.symbol)}</div>
         <div class="holding-name holding-name-en">${escapeHtml(position.name)}</div>
       </div>
       <div class="holding-number">${formatNumber(position.qty)}</div>
