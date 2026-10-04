@@ -144,13 +144,20 @@ function parseCashflow(statement) {
   const cashTxs = toArray(statement.CashTransactions?.CashTransaction);
   const dividends = [];
   const fees = [];
+  const flows = [];
 
   for (const row of cashTxs) {
     const description = valueOf(row.description || row.type) || "";
-    if (!/dividend|fee|commission|regulatory|interest|withholding/i.test(description)) continue;
     const date = formatDate(row.dateTime || row.reportDate || row.date);
     const month = date ? date.slice(0, 7) : "";
     const amount = num(row.amount);
+
+    // 入金/出金（外部资金流），amount 正=入金、负=出金；与股息/费用分开统计
+    if (/deposit|withdrawal|funds received|funds disbursed|cash receipt|cash disbursement/i.test(description)) {
+      flows.push({ month, name: description, amount });
+      continue;
+    }
+    if (!/dividend|fee|commission|regulatory|interest|withholding/i.test(description)) continue;
     if (/dividend/i.test(description)) {
       dividends.push({ month, symbol: valueOf(row.symbol), name: description, amount });
     } else {
@@ -167,6 +174,10 @@ function parseCashflow(statement) {
     fees: {
       total: fees.reduce((sum, row) => sum + row.amount, 0),
       byMonth: aggregateCashflowByMonth(fees),
+    },
+    flows: {
+      total: flows.reduce((sum, row) => sum + row.amount, 0),
+      byMonth: aggregateCashflowByMonth(flows),
     },
   };
 }

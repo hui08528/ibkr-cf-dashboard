@@ -29,7 +29,20 @@ const demoData = {
     { date: "2026-09-12", type: "buy", symbol: "QQQ", name: "Invesco QQQ", qty: 20, price: 480.50, amount: 9610.00 },
     { date: "2026-09-10", type: "buy", symbol: "BRK.B", name: "Berkshire Hathaway", qty: 15, price: 455.00, amount: 6825.00 },
   ],
-  navSeries: [],
+  navSeries: [
+    { date: "2025-10-31", value: 210000 },
+    { date: "2025-11-28", value: 214500 },
+    { date: "2025-12-31", value: 221000 },
+    { date: "2026-01-30", value: 218500 },
+    { date: "2026-02-27", value: 226800 },
+    { date: "2026-03-31", value: 232400 },
+    { date: "2026-04-30", value: 229900 },
+    { date: "2026-05-29", value: 238500 },
+    { date: "2026-06-30", value: 242300 },
+    { date: "2026-07-31", value: 245800 },
+    { date: "2026-08-31", value: 247900 },
+    { date: "2026-09-30", value: 251000 },
+  ],
 };
 
 let portfolio = demoData;
@@ -319,6 +332,7 @@ function applyPortfolio(nextPortfolio, statusText) {
   if (accountId) accountId.textContent = portfolio.account || "IBKR";
 
   renderOverview();
+  renderMonthlyPnlCard();
   renderPerformanceChart(currentChartDays());
   renderSectorChart();
   renderTopMovers();
@@ -346,6 +360,7 @@ function normalizePortfolio(input) {
 function normalizeCashflow(input) {
   const dividends = input?.dividends || {};
   const fees = input?.fees || {};
+  const flows = input?.flows || {};
   return {
     dividends: {
       total: number(dividends.total),
@@ -355,6 +370,10 @@ function normalizeCashflow(input) {
     fees: {
       total: number(fees.total),
       byMonth: Array.isArray(fees.byMonth) ? fees.byMonth : [],
+    },
+    flows: {
+      total: number(flows.total),
+      byMonth: Array.isArray(flows.byMonth) ? flows.byMonth : [],
     },
   };
 }
@@ -486,7 +505,10 @@ function showSection(name) {
   sections.forEach((section) => section.classList.toggle("active", section.id === `section-${target}`));
   pageTitle.textContent = titles[target] || "";
   if (target === "allocation") renderAllocationCharts();
-  if (target === "positions") renderPositionsTable(currentPositionFilter(), currentPositionSearch());
+  if (target === "positions") {
+    renderMonthlyPnlCard();
+    renderPositionsTable(currentPositionFilter(), currentPositionSearch());
+  }
   if (target === "transactions") renderTxTable(currentTxFilter());
   if (target === "analytics") renderAnalytics();
   if (target === "insights") renderInsights();
@@ -875,6 +897,69 @@ function renderMonthlyReturns() {
       `;
     })
     .join("");
+}
+
+function renderMonthlyPnlCard() {
+  const amountEl = document.getElementById("monthly-pnl-amount");
+  if (!amountEl) return;
+
+  // 当前自然月（本地时区）
+  const now = new Date();
+  const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const monthStart = `${monthKey}-01`;
+
+  const nav = portfolio.navSeries;
+  if (!Array.isArray(nav) || nav.length === 0) {
+    renderMonthlyPnlUnavailable("数据不足");
+    return;
+  }
+
+  // 上月末资产：nav 升序，取最后一个 date < 本月1日 的点
+  let startAsset = 0;
+  for (const row of nav) {
+    const date = String(row.date || "").slice(0, 10);
+    if (!validDate(date)) continue;
+    if (date < monthStart) startAsset = number(row.value);
+  }
+
+  const currentAsset = number(totals.totalMarket);
+  if (!startAsset || !currentAsset) {
+    renderMonthlyPnlUnavailable("数据不足");
+    return;
+  }
+
+  // 本月净入金：flows.byMonth 中本月条目（正=入金、负=出金）；缺省按 0 计
+  const flowRow = (portfolio.cashflow?.flows?.byMonth || []).find((row) => row.month === monthKey);
+  const netFlow = number(flowRow?.amount);
+
+  // 本月盈亏 = (当前总资产 − 上月末资产) − 本月净入金（股息/费用已含在净值变动内）
+  const monthlyPnl = currentAsset - startAsset - netFlow;
+  const monthlyRate = startAsset ? (monthlyPnl / startAsset) * 100 : 0;
+
+  amountEl.textContent = signedCurrency(monthlyPnl);
+  amountEl.className = `meta-value ${monthlyPnl >= 0 ? "up" : "down"}`;
+
+  const rateEl = document.getElementById("monthly-pnl-rate");
+  rateEl.textContent = signedPercent(monthlyRate);
+  rateEl.className = `meta-value ${monthlyRate >= 0 ? "up" : "down"}`;
+
+  document.getElementById("monthly-pnl-start").textContent = formatCurrency(startAsset);
+  document.getElementById("monthly-pnl-current").textContent = formatCurrency(currentAsset);
+  document.getElementById("monthly-pnl-flow").textContent = signedCurrency(netFlow);
+}
+
+function renderMonthlyPnlUnavailable(label) {
+  const placeholders = [
+    ["monthly-pnl-amount", label],
+    ["monthly-pnl-rate", "—"],
+    ["monthly-pnl-start", "—"],
+    ["monthly-pnl-current", "—"],
+    ["monthly-pnl-flow", "—"],
+  ];
+  for (const [id, text] of placeholders) {
+    const element = document.getElementById(id);
+    if (element) element.textContent = text;
+  }
 }
 
 function benchmarkMonthKeys() {
