@@ -119,21 +119,32 @@ async function init() {
 }
 
 function wireFrameworkTopics() {
+  const modal = document.getElementById("framework-modal");
+  const modalTitle = document.getElementById("framework-modal-title");
+  const modalBody = document.getElementById("framework-modal-body");
+  const closeModal = () => {
+    if (!modal) return;
+    modal.hidden = true;
+    document.body.classList.remove("modal-open");
+  };
+  document.querySelectorAll("[data-framework-modal-close]").forEach((element) => element.addEventListener("click", closeModal));
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && modal && !modal.hidden) closeModal();
+  });
   document.querySelectorAll("[data-framework-topic]").forEach((topic) => {
     const toggle = topic.querySelector(".framework-topic-toggle");
     const detail = topic.querySelector(".framework-detail");
-    if (!toggle || !detail) return;
-    const toggleTopic = () => {
-      const expanded = toggle.getAttribute("aria-expanded") === "true";
-      toggle.setAttribute("aria-expanded", String(!expanded));
-      detail.hidden = expanded;
-      topic.classList.toggle("expanded", !expanded);
-      toggle.querySelector("span").textContent = expanded ? "查看详情" : "收起详情";
+    if (!toggle || !detail || !modal || !modalTitle || !modalBody) return;
+    const openModal = () => {
+      modalTitle.textContent = topic.querySelector("h3")?.textContent || "投资框架详情";
+      modalBody.innerHTML = detail.innerHTML;
+      modal.hidden = false;
+      document.body.classList.add("modal-open");
     };
-    toggle.addEventListener("click", toggleTopic);
+    toggle.addEventListener("click", openModal);
     topic.addEventListener("click", (event) => {
       if (event.target.closest(".framework-topic-toggle") || event.target.closest(".framework-detail")) return;
-      toggleTopic();
+      openModal();
     });
   });
 }
