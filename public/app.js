@@ -549,12 +549,28 @@ function renderFrameworkAnalysis() {
   const alert = document.getElementById("framework-risk-alert");
   if (!alert) return;
   const messages = [];
+  const actions = [];
   if (debt > 0) messages.push(`当前存在融资余额 ${formatCurrency(debt)}。`);
-  if (leverage > 2) messages.push(`账户杠杆约 ${leverage.toFixed(2)} 倍，已超过框架中建议的 2 倍以内。`);
-  else if (leverage > 1.5) messages.push(`账户杠杆约 ${leverage.toFixed(2)} 倍，处于需要重点关注的区间。`);
-  if (concentration >= 0.5) messages.push(`最大单一持仓占证券市值 ${percent(concentration * securities, securities)}，集中度较高。`);
-  alert.hidden = messages.length === 0;
-  alert.textContent = messages.length ? `风险提示：${messages.join(" ")}` : "当前未发现融资或集中度提示。";
+  if (leverage > 2) {
+    messages.push(`账户杠杆约 ${leverage.toFixed(2)} 倍，已超过框架中建议的 2 倍以内。`);
+    actions.push("暂缓新增融资和杠杆 ETF，优先制定分阶段降杠杆计划，目标回到 2 倍以内。");
+  } else if (leverage > 1.5) {
+    messages.push(`账户杠杆约 ${leverage.toFixed(2)} 倍，处于需要重点关注的区间。`);
+    actions.push("暂不继续提高杠杆，先完成至少 20% 回撤压力测试，并确认融资期限和利率能承受长期持有。");
+  }
+  if (debt > 0) {
+    actions.push("核对实际融资利率、到期日、维持担保比例和强平线；融资成本最好控制在 6% 以下，并保留还款缓冲。");
+  }
+  if (concentration >= 0.5) {
+    messages.push(`最大单一持仓占证券市值 ${percent(concentration * securities, securities)}，集中度较高。`);
+    actions.push("新增资金优先补充其他资产或宽基仓位，避免继续放大单一标的风险；不要仅因短期波动一次性追涨杀跌。");
+  }
+  if (!messages.length) {
+    messages.push("当前未发现融资或高集中度提示。");
+    actions.push("继续按长期计划投入，普通回调不做频繁择时；每次加仓前复核资金期限和 20% 回撤承受能力。");
+  }
+  alert.hidden = false;
+  alert.innerHTML = `<strong>风险提示：</strong>${messages.join(" ")}<br><strong>操作建议：</strong><ul>${actions.map((action) => `<li>${action}</li>`).join("")}</ul><span class="framework-risk-source">建议依据：PDF 中的 2 倍杠杆、6% 融资利率、至少 2 年资金期限和 20% 回撤压力测试原则。</span>`;
 }
 
 function currentSection() {

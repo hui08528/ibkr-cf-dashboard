@@ -385,12 +385,12 @@
           <span class="data-status" id="framework-account-status">等待组合数据</span>
         </div>
         <div class="framework-account-grid">
-          <div><span>净资产</span><strong id="framework-nav">—</strong></div>
-          <div><span>证券市值</span><strong id="framework-securities">—</strong></div>
-          <div><span>融资余额</span><strong id="framework-debt">—</strong></div>
-          <div><span>账户杠杆</span><strong id="framework-leverage">—</strong></div>
-          <div><span>负债/净资产</span><strong id="framework-debt-ratio">—</strong></div>
-          <div><span>最大持仓权重</span><strong id="framework-concentration">—</strong></div>
+          <div title="净资产 = 证券市值 + 现金。现金为负时，表示账户存在融资负债。"><span>净资产 ⓘ</span><strong id="framework-nav">—</strong></div>
+          <div title="证券市值 = 当前所有证券持仓市值之和，不包含现金和融资负债。"><span>证券市值 ⓘ</span><strong id="framework-securities">—</strong></div>
+          <div title="融资余额 = max(0, -现金余额)。当前现金为负时，将负现金视为融资负债。"><span>融资余额 ⓘ</span><strong id="framework-debt">—</strong></div>
+          <div title="账户杠杆 = 证券市值 ÷ 净资产。该指标越高，净资产对市场波动越敏感。"><span>账户杠杆 ⓘ</span><strong id="framework-leverage">—</strong></div>
+          <div title="负债/净资产 = 融资余额 ÷ 净资产，用于衡量负债相对于自有资金的比例。"><span>负债/净资产 ⓘ</span><strong id="framework-debt-ratio">—</strong></div>
+          <div title="最大持仓权重 = 最大单一持仓市值 ÷ 证券市值，用于衡量组合集中度。"><span>最大持仓权重 ⓘ</span><strong id="framework-concentration">—</strong></div>
         </div>
         <div id="framework-risk-alert" class="framework-risk-alert" hidden></div>
       </div>
