@@ -62,7 +62,7 @@ let monthlyReturnMode = "rate"; // 月度收益网格展示模式："rate"=收�
 let perfChart;
 let sectorChart;
 let assetClassChart;
-let regionChart;
+let topHoldingsChart;
 let benchmarkChart;
 let dividendChart;
 
@@ -683,17 +683,25 @@ function renderAllocationCharts(force = false) {
   if (!force && !document.getElementById("section-positions").classList.contains("active")) return;
 
   const typeData = groupByValue([...positions, cash], (position) => ({ stock: "股票", etf: "ETF", option: "期权", cash: "现金" }[position.type] || position.type), positionMarketValue);
-  const regionData = groupByValue([...positions, cash], (position) => ({ US: "美国", CN: "中国", HK: "香港", EU: "欧洲" }[position.region] || position.region), positionMarketValue);
+  const topHoldings = [...positions]
+    .map((position) => ({ ...position, marketValue: positionMarketValue(position) }))
+    .sort((a, b) => b.marketValue - a.marketValue)
+    .slice(0, 10);
   const colors = chartColors();
 
   if (assetClassChart) assetClassChart.destroy();
-  if (regionChart) regionChart.destroy();
+  if (topHoldingsChart) topHoldingsChart.destroy();
   assetClassChart = pieChart("asset-class-chart", typeData, ["#2563eb", "#8b5cf6", "#10b981", "#f59e0b"], colors);
-  regionChart = pieChart("region-chart", regionData, ["#2563eb", "#ef4444", "#10b981", "#8b5cf6"], colors);
-  renderTopHoldings();
+  topHoldingsChart = pieChart(
+    "top-holdings-chart",
+    Object.fromEntries(topHoldings.map((position) => [position.symbol, position.marketValue])),
+    ["#2563eb", "#ef4444", "#10b981", "#8b5cf6", "#f59e0b", "#06b6d4", "#ec4899", "#84cc16", "#f97316", "#6366f1"],
+    colors,
+    true,
+  );
 }
 
-function pieChart(id, data, backgroundColor, colors) {
+function pieChart(id, data, backgroundColor, colors, showWeights = false) {
   return new Chart(document.getElementById(id), {
     type: "pie",
     data: { labels: Object.keys(data), datasets: [{ data: Object.values(data), backgroundColor, borderWidth: 2 }] },
@@ -701,27 +709,27 @@ function pieChart(id, data, backgroundColor, colors) {
       responsive: true,
       maintainAspectRatio: false,
       plugins: {
-        legend: { position: "bottom", labels: { color: colors.text, padding: 15, font: { size: 12 } } },
+        legend: {
+          position: "bottom",
+          labels: {
+            color: colors.text,
+            padding: 15,
+            font: { size: 12 },
+            ...(showWeights ? {
+              generateLabels(chart) {
+                const labels = Chart.defaults.plugins.legend.labels.generateLabels(chart);
+                return labels.map((item) => ({
+                  ...item,
+                  text: `${item.text} ${percent(chart.data.datasets[0].data[item.index], totals.totalMarket)}`,
+                }));
+              },
+            } : {}),
+          },
+        },
         tooltip: { callbacks: { label: (item) => ` ${item.label}: ${formatCurrency(item.parsed)} (${percent(item.parsed, totals.totalMarket)})` } },
       },
     },
   });
-}
-
-function renderTopHoldings() {
-  const topHoldings = [...positions].map((position) => ({ ...position, mv: positionMarketValue(position) })).sort((a, b) => b.mv - a.mv).slice(0, 8);
-  const maxMv = topHoldings[0]?.mv || 1;
-  document.getElementById("top-holdings").innerHTML = topHoldings.map((position, index) => `
-    <div class="holding-row">
-      <div class="holding-rank">${index + 1}</div>
-      <div class="holding-info">
-        <div class="holding-sym">${escapeHtml(position.symbol)}</div>
-        <div class="holding-name">${escapeHtml(position.name)}</div>
-      </div>
-      <div class="holding-bar-wrap"><div class="holding-bar" style="width: ${(position.mv / maxMv) * 100}%"></div></div>
-      <div class="holding-pct">${percent(position.mv, totals.market)}</div>
-    </div>
-  `).join("");
 }
 
 function renderTxTable(filter = "all") {
