@@ -106,6 +106,7 @@ init();
 async function init() {
   wireNavigation();
   wireControls();
+  wireFrameworkTopics();
   applyPortfolio(demoData, "正在连接 IBKR...");
 
   try {
@@ -115,6 +116,26 @@ async function init() {
     console.warn(error);
     applyPortfolio(demoData, "未配置 IBKR，显示 Demo Data");
   }
+}
+
+function wireFrameworkTopics() {
+  document.querySelectorAll("[data-framework-topic]").forEach((topic) => {
+    const toggle = topic.querySelector(".framework-topic-toggle");
+    const detail = topic.querySelector(".framework-detail");
+    if (!toggle || !detail) return;
+    const toggleTopic = () => {
+      const expanded = toggle.getAttribute("aria-expanded") === "true";
+      toggle.setAttribute("aria-expanded", String(!expanded));
+      detail.hidden = expanded;
+      topic.classList.toggle("expanded", !expanded);
+      toggle.querySelector("span").textContent = expanded ? "查看详情" : "收起详情";
+    };
+    toggle.addEventListener("click", toggleTopic);
+    topic.addEventListener("click", (event) => {
+      if (event.target.closest(".framework-topic-toggle") || event.target.closest(".framework-detail")) return;
+      toggleTopic();
+    });
+  });
 }
 
 async function loadPortfolio() {

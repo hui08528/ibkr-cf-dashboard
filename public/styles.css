@@ -877,7 +877,40 @@ body {
 
 .framework-topic {
   padding: 20px;
+  cursor: pointer;
 }
+
+.framework-topic-toggle {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.framework-topic-toggle h3 { margin: 0; }
+.framework-topic-toggle span {
+  flex: 0 0 auto;
+  color: var(--primary);
+  font-size: 12px;
+}
+
+.framework-detail {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-light);
+}
+
+.framework-detail p,
+.framework-detail li { line-height: 1.8; }
+.framework-detail { cursor: default; }
+.framework-topic.expanded { border-color: var(--primary); }
 
 .framework-topic h3,
 .framework-note h3 {
