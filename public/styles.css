@@ -692,6 +692,98 @@ body {
 }
 
 /* Guide */
+.framework-hero p,
+.framework-topic p,
+.framework-topic li,
+.framework-note p {
+  line-height: 1.8;
+  color: var(--text-muted);
+}
+
+.framework-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.btn-secondary {
+  background: var(--surface-alt);
+  color: var(--text-primary);
+}
+
+.framework-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.framework-summary {
+  padding: 20px;
+}
+
+.framework-summary h4 {
+  margin: 6px 0 8px;
+  font-size: 18px;
+}
+
+.framework-summary p,
+.framework-topic p {
+  margin: 8px 0 0;
+}
+
+.framework-kicker {
+  color: var(--primary);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .04em;
+}
+
+.framework-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.framework-topic {
+  padding: 20px;
+}
+
+.framework-topic h3,
+.framework-note h3 {
+  margin: 0;
+}
+
+.framework-topic ul {
+  margin: 12px 0 0;
+  padding-left: 20px;
+}
+
+.formula-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.formula-list code {
+  display: block;
+  padding: 9px 12px;
+  border-radius: 8px;
+  background: var(--surface-alt);
+  color: var(--text-primary);
+}
+
+.muted-note {
+  font-size: 12px;
+  color: var(--text-muted) !important;
+}
+
+.framework-note {
+  margin-top: 16px;
+  padding: 20px;
+}
+
 .guide-content {
   padding: 20px;
   display: flex;
@@ -824,4 +916,6 @@ body {
   .stats-row { grid-template-columns: 1fr 1fr; }
   .chart-container { height: 250px; }
   .market-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 12px; }
+  .framework-summary-grid,
+  .framework-grid { grid-template-columns: 1fr; }
 }

@@ -77,6 +77,7 @@ const titles = {
   transactions: "交易记录",
   analytics: "收益分析",
   insights: "市场洞察",
+  framework: "投资框架",
   guide: "部署指南",
 };
 
@@ -726,10 +727,13 @@ function pieChart(id, data, backgroundColor, colors, showWeights = false, weight
             font: { size: 12 },
             ...(showWeights ? {
               generateLabels(chart) {
-                const labels = Chart.defaults.plugins.legend.labels.generateLabels(chart);
-                return labels.map((item) => ({
-                  ...item,
-                  text: `${item.text} 权重 ${percent(chart.data.datasets[0].data[item.index], weightBase)}`,
+                const dataset = chart.data.datasets[0];
+                return chart.data.labels.map((label, index) => ({
+                  text: `${label} 权重 ${percent(dataset.data[index], weightBase)}`,
+                  fillStyle: dataset.backgroundColor[index],
+                  strokeStyle: dataset.backgroundColor[index],
+                  hidden: false,
+                  index,
                 }));
               },
             } : {}),
