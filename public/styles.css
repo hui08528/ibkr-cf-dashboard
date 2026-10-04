@@ -605,12 +605,29 @@ body {
 /* Top Holdings */
 .top-holdings {
   padding: 12px 20px 20px;
+  overflow-x: auto;
 }
 
+.holding-table-head,
 .holding-row {
-  display: flex;
+  min-width: 980px;
+  display: grid;
+  grid-template-columns: 34px minmax(180px, 1.7fr) 72px 88px 88px 100px minmax(80px, 1fr) 92px 92px 76px;
   align-items: center;
-  gap: 14px;
+  gap: 10px;
+}
+
+.holding-table-head {
+  padding: 0 0 8px;
+  color: var(--text-muted);
+  font-size: 11px;
+  text-align: right;
+}
+
+.holding-table-head span:nth-child(1),
+.holding-table-head span:nth-child(2) { text-align: left; }
+
+.holding-row {
   padding: 10px 0;
   border-bottom: 1px solid var(--border-light);
 }
@@ -625,7 +642,7 @@ body {
 }
 
 .holding-info {
-  flex: 1;
+  min-width: 0;
 }
 
 .holding-sym {
@@ -638,8 +655,21 @@ body {
   color: var(--text-muted);
 }
 
+.holding-name-en {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.holding-number,
+.holding-pct {
+  text-align: right;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
 .holding-bar-wrap {
-  flex: 2;
+  min-width: 80px;
   height: 8px;
   background: var(--surface-alt);
   border-radius: 4px;

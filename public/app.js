@@ -683,7 +683,7 @@ function renderAllocationCharts(force = false) {
   if (!force && !document.getElementById("section-positions").classList.contains("active")) return;
 
   const typeData = groupByValue([...positions, cash], (position) => ({ stock: "股票", etf: "ETF", option: "期权", cash: "现金" }[position.type] || position.type), positionMarketValue);
-  const allocationBase = [...positions, cash].reduce((sum, position) => sum + positionMarketValue(position), 0);
+  const allocationBase = number(portfolio.summary?.securitiesMarketValue) || positions.reduce((sum, position) => sum + positionMarketValue(position), 0);
   const holdingRows = [...positions]
     .map((position) => ({ ...position, marketValue: positionMarketValue(position) }))
     .sort((a, b) => b.marketValue - a.marketValue);
@@ -748,12 +748,35 @@ function renderTopHoldings(holdingRows = [...positions].map((position) => ({ ...
       <div class="holding-rank">${index + 1}</div>
       <div class="holding-info">
         <div class="holding-sym">${escapeHtml(position.symbol)}</div>
-        <div class="holding-name">${escapeHtml(position.name)}</div>
+        <div class="holding-name">${escapeHtml(companyChineseName(position.symbol, position.name))}</div>
+        <div class="holding-name holding-name-en">${escapeHtml(position.name)}</div>
       </div>
+      <div class="holding-number">${formatNumber(position.qty)}</div>
+      <div class="holding-number">${formatCurrency(position.cost)}</div>
+      <div class="holding-number">${formatCurrency(position.price)}</div>
+      <div class="holding-number holding-market-value">${formatCurrency(position.marketValue)}</div>
       <div class="holding-bar-wrap"><div class="holding-bar" style="width: ${(position.marketValue / maxMv) * 100}%"></div></div>
+      <div class="holding-number ${position.unrealizedPnl >= 0 ? "pnl-up" : "pnl-down"}">${signedCurrency(position.unrealizedPnl || position.marketValue - position.qty * position.cost)}</div>
+      <div class="holding-number ${pnlRateForPosition(position) >= 0 ? "pnl-up" : "pnl-down"}">${signedPercent(pnlRateForPosition(position) * 100)}</div>
       <div class="holding-pct">${percent(position.marketValue, totals.totalMarket)}</div>
     </div>
   `).join("");
+}
+
+function companyChineseName(symbol, fallback = "") {
+  const names = {
+    DRAM: "Roundhill 内存 ETF",
+    DXJ: "WisdomTree 日本对冲股票基金",
+    GGLL: "Direxion 做多谷歌 2 倍 ETF",
+    GOOG: "谷歌 A 类股",
+    IBKR: "盈透证券",
+    MSFT: "微软",
+    NVDA: "英伟达",
+    SPCX: "太空探索科技",
+    TQQQ: "ProShares 纳指 100 三倍 ETF",
+    TSMU: "GraniteShares 台积电 2 倍 ETF",
+  };
+  return names[String(symbol || "").toUpperCase()] || fallback;
 }
 
 function renderTxTable(filter = "all") {
