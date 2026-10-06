@@ -498,7 +498,7 @@ function renderMarketSnapshot() {
   }
 
   if (marketStatus === "unavailable") {
-    grid.innerHTML = `<div class="empty-cell">行情暂不可用，请检查 Alpha Vantage 配置或额度。</div>`;
+    grid.innerHTML = `<div class="empty-cell">行情暂不可用，请检查 Longbridge / Alpha Vantage 配置。</div>`;
     if (cnGrid) cnGrid.innerHTML = "";
     return;
   }
@@ -508,7 +508,7 @@ function renderMarketSnapshot() {
     : `<div class="empty-cell">暂无行情数据</div>`;
 
   if (cnGrid) {
-    cnGrid.innerHTML = cnMarketQuotes.length ? cnMarketQuotes.map(renderQuoteCard).join("") : "";
+    cnGrid.innerHTML = cnMarketQuotes.length ? arrangeCnQuotes(cnMarketQuotes).map(renderQuoteCard).join("") : "";
   }
 }
 
@@ -517,18 +517,73 @@ function renderQuoteCard(quote) {
   const change = number(quote.change);
   const pct = number(quote.changePercent);
   const up = change >= 0;
+  const hasPremium = quote.premiumRate !== null && quote.premiumRate !== undefined;
+  const premium = hasPremium ? number(quote.premiumRate) : null;
+  const changeTip = `涨跌额：现价较昨日收盘价 ${quote.previousClose}，每份${up ? "上涨" : "下跌"} ${Math.abs(change).toFixed(2)}`;
+
+  const premiumBlock = hasPremium
+    ? `
+      <div class="market-premium ${premiumLevelClass(premium)}${quote.premiumLowest ? " is-lowest" : ""}">
+        ${quote.premiumLowest ? `<span class="premium-tag">同类最低</span>` : ""}
+        <span class="premium-rate">溢价 ${premium > 0 ? "+" : ""}${premium.toFixed(2)}%</span>
+      </div>
+      <div class="market-premium-meta">
+        ${quote.iopv !== null && quote.iopv !== undefined ? `IOPV ${quote.iopv}` : ""}
+        ${quote.navDate ? ` · 净值日期 ${escapeHtml(quote.navDate)}` : ""}
+      </div>`
+    : "";
 
   return `
     <div class="market-item">
       <div class="market-symbol">${escapeHtml(quote.displaySymbol || quote.symbol)}</div>
       <div class="market-name">${escapeHtml(quote.nameCn || quote.name || quote.symbol)}</div>
       <div class="market-subname">${escapeHtml(quote.name || "")}</div>
-      <div class="market-price">${available ? formatPlainPrice(quote.price) : "暂无数据"}</div>
+      <div class="market-price"><span class="field-label">现价</span>${available ? formatPlainPrice(quote.price) : "暂无数据"}</div>
       <div class="market-change ${available ? (up ? "up" : "down") : "market-unavailable"}">
-        ${available ? `${up ? "+" : ""}${change.toFixed(2)} (${up ? "+" : ""}${pct.toFixed(2)}%)` : marketErrorLabel(quote.error)}
+        ${available ? `<span class="field-label">涨跌</span><span class="change-tip" title="${changeTip}">${up ? "+" : ""}${change.toFixed(2)}</span> (${up ? "+" : ""}${pct.toFixed(2)}%)` : marketErrorLabel(quote.error)}
       </div>
+      ${premiumBlock}
     </div>
   `;
+}
+
+// 溢价率分级：折价 / <5%安全 / 5~15%警示 / 15~30%危险 / ≥30%极度危险
+function premiumLevelClass(rate) {
+  if (rate < 0) return "premium-discount";
+  const a = Math.abs(rate);
+  if (a < 5) return "premium-safe";
+  if (a < 15) return "premium-warn";
+  if (a < 30) return "premium-danger";
+  return "premium-extreme";
+}
+
+// 按 premiumGroup 分组：保持各组首次出现顺序；组内按溢价升序（无值排最后）；
+// 组内多于 1 只时把溢价最低的复制并标记 premiumLowest（不改原对象）。
+function arrangeCnQuotes(quotes) {
+  const groupOrder = [];
+  const byGroup = new Map();
+  for (const q of quotes) {
+    const g = q.premiumGroup || "_";
+    if (!byGroup.has(g)) {
+      byGroup.set(g, []);
+      groupOrder.push(g);
+    }
+    byGroup.get(g).push(q);
+  }
+
+  const out = [];
+  for (const g of groupOrder) {
+    const arr = byGroup.get(g).slice().sort((a, b) => {
+      if (a.premiumRate === null || a.premiumRate === undefined) return 1;
+      if (b.premiumRate === null || b.premiumRate === undefined) return -1;
+      return a.premiumRate - b.premiumRate;
+    });
+    if (arr.length > 1 && arr[0].premiumRate !== null && arr[0].premiumRate !== undefined) {
+      arr[0] = { ...arr[0], premiumLowest: true };
+    }
+    out.push(...arr);
+  }
+  return out;
 }
 
 function marketErrorLabel(error) {

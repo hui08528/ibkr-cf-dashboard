@@ -705,6 +705,58 @@ body {
 .market-change.down { color: var(--down); }
 .market-unavailable { color: var(--text-muted); }
 
+/* 行内字段说明标签（现价 / 涨跌）*/
+.field-label {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-light);
+  margin-right: 5px;
+}
+
+/* 涨跌额：hover 显示含义 */
+.change-tip {
+  cursor: help;
+  border-bottom: 1px dotted currentColor;
+}
+
+/* 场内 QDII 溢价率：正溢价=风险信号（红），折价=绿 */
+.market-premium {
+  margin-top: 8px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.market-premium .premium-rate { font-weight: 600; }
+.market-premium .premium-tag {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(128, 128, 128, 0.22);
+}
+
+/* 溢价分级（半透明底，明暗模式均适配）*/
+.market-premium.premium-safe     { background: var(--up-bg);              color: var(--up); }
+.market-premium.premium-warn     { background: rgba(217, 119, 6, 0.13);   color: #d97706; }
+.market-premium.premium-danger   { background: var(--down-bg);            color: var(--down); }
+.market-premium.premium-extreme  { background: rgba(190, 18, 60, 0.15);   color: #be123c; }
+.market-premium.premium-discount { background: var(--up-bg);              color: var(--up); }
+
+/* 同类最低：绿色描边高亮 */
+.market-premium.is-lowest { outline: 2px solid var(--up); outline-offset: -1px; }
+
+.market-premium-meta {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--text-light);
+}
+
 .symbol-cell {
   font-weight: 600;
   color: var(--primary);

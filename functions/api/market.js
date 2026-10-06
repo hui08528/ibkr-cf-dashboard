@@ -1,4 +1,5 @@
 import { fetchQuote as fetchLongbridgeQuote, isLongbridgeConfigured } from "./lib/longbridge.js";
+import { fetchQdiiPremium } from "./lib/cn-premium.js";
 
 const ALPHA_VANTAGE_URL = "https://www.alphavantage.co/query";
 
@@ -22,12 +23,12 @@ const usInstruments = [
 // 场内 QDII（追踪同一批海外指数的国内 ETF）
 const cnInstruments = [
   // 159509.SZ：景顺长城纳斯达克科技 ETF，追踪 NDXTMC
-  { symbol: "159509", displaySymbol: "159509.SZ", name: "Invesco Great Wall Nasdaq-100 Technology Sector Market-Cap Weighted ETF (QDII)", nameCn: "景顺长城纳斯达克科技ETF(QDII)", longbridgeSymbol: "159509.SZ" },
+  { symbol: "159509", displaySymbol: "159509.SZ", name: "Invesco Great Wall Nasdaq-100 Technology Sector Market-Cap Weighted ETF (QDII)", nameCn: "景顺长城纳斯达克科技ETF(QDII)", longbridgeSymbol: "159509.SZ", premiumGroup: "NDXTMC" },
   // 以下均追踪纳斯达克100（NDX）
-  { symbol: "159941", displaySymbol: "159941.SZ", name: "广发纳指100ETF", nameCn: "广发纳指100ETF", longbridgeSymbol: "159941.SZ" },
-  { symbol: "513100", displaySymbol: "513100.SH", name: "国泰纳斯达克100(QDII-ETF)", nameCn: "国泰纳斯达克100ETF(QDII)", longbridgeSymbol: "513100.SH" },
-  { symbol: "159659", displaySymbol: "159659.SZ", name: "招商纳斯达克100ETF(QDII)", nameCn: "招商纳斯达克100ETF(QDII)", longbridgeSymbol: "159659.SZ" },
-  { symbol: "513300", displaySymbol: "513300.SH", name: "华夏纳斯达克100ETF(QDII)", nameCn: "华夏纳斯达克100ETF(QDII)", longbridgeSymbol: "513300.SH" },
+  { symbol: "159941", displaySymbol: "159941.SZ", name: "广发纳指100ETF", nameCn: "广发纳指100ETF", longbridgeSymbol: "159941.SZ", premiumGroup: "NDX" },
+  { symbol: "513100", displaySymbol: "513100.SH", name: "国泰纳斯达克100(QDII-ETF)", nameCn: "国泰纳斯达克100ETF(QDII)", longbridgeSymbol: "513100.SH", premiumGroup: "NDX" },
+  { symbol: "159659", displaySymbol: "159659.SZ", name: "招商纳斯达克100ETF(QDII)", nameCn: "招商纳斯达克100ETF(QDII)", longbridgeSymbol: "159659.SZ", premiumGroup: "NDX" },
+  { symbol: "513300", displaySymbol: "513300.SH", name: "华夏纳斯达克100ETF(QDII)", nameCn: "华夏纳斯达克100ETF(QDII)", longbridgeSymbol: "513300.SH", premiumGroup: "NDX" },
 ];
 
 export async function onRequestGet({ env }) {
@@ -57,7 +58,7 @@ export async function onRequestGet({ env }) {
     // avCalls 在两组建共享：限制 Alpha Vantage 免费额度（调用间至少间隔 1.2s）
     const state = { lbConfigured, apiKey, avCalls: 0 };
     const quotes = await loadGroup(usInstruments, state);
-    const cnQuotes = await loadGroup(cnInstruments, state);
+    const cnQuotes = await loadGroup(cnInstruments, state, true);
 
     if ([...quotes, ...cnQuotes].some((quote) => quote.available)) {
       cachedQuotes = quotes;
@@ -81,21 +82,31 @@ export async function onRequestGet({ env }) {
   }
 }
 
-async function loadGroup(instruments, state) {
+async function loadGroup(instruments, state, qdii = false) {
   const quotes = [];
   for (const instrument of instruments) {
-    const quote = await loadQuote(instrument, state);
+    const quote = await loadQuote(instrument, state, qdii);
     if (quote.source === "alpha-vantage") state.avCalls += 1;
     quotes.push(quote);
   }
   return quotes;
 }
 
-// 长桥主源 → Alpha Vantage 兜底
-async function loadQuote(instrument, { lbConfigured, apiKey, avCalls }) {
+// 长桥主源 → Alpha Vantage 兜底；qdii 标的补溢价率（现价 ÷ 最新单位净值）
+async function loadQuote(instrument, { lbConfigured, apiKey, avCalls }, qdii = false) {
   if (lbConfigured) {
     const lbQuote = await fetchLongbridgeQuote(instrument.symbol, instrument);
-    if (lbQuote.available) return lbQuote;
+    if (lbQuote.available) {
+      if (qdii) {
+        const prem = await fetchQdiiPremium(instrument.symbol, lbQuote.price).catch(() => ({
+          premiumRate: null,
+          nav: null,
+          navDate: "",
+        }));
+        return { ...lbQuote, ...prem };
+      }
+      return lbQuote;
+    }
     if (!apiKey) return lbQuote; // 无 AV key：保留长桥的错误信息
   }
 
