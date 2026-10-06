@@ -1,8 +1,9 @@
 # IBKR Dashboard - 后端服务镜像
 # 用法：docker build -t ibkr-dashboard .
 # 生产环境建议通过 docker-compose 启动（env_file 注入密钥，避免把 .env 打进镜像）
-
-FROM node:20-alpine
+# 注意：用 bookworm-slim（glibc）而非 alpine —— longbridge 原生包只发布 glibc 变体，
+#       alpine/musl 会加载失败并静默降级到 Alpha Vantage。
+FROM node:20-bookworm-slim
 
 WORKDIR /app
 

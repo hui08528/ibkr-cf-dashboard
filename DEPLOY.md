@@ -99,6 +99,27 @@ vim .env                    # 填 IBKR_FLEX_TOKEN / IBKR_FLEX_QUERY_ID / ALPHA_V
 chmod 600 .env
 ```
 
+### 3.5 长桥 token（可选，启用 `/api/market` 长桥行情时）
+
+容器内没有本机 `~/.longbridge` token 缓存，需把**已授权开发机**上的 token 文件 base64 后填进 `.env`，
+容器首次请求时自动恢复到 `~/.longbridge/openapi/tokens/<client_id>`：
+
+```bash
+# 在已授权的开发机（本机）执行，输出一串 base64：
+client_id=$(grep '^LONGBRIDGE_OAUTH_CLIENT_ID=' .env | cut -d= -f2)
+base64 -w0 "$HOME/.longbridge/openapi/tokens/$client_id"    # macOS / Linux / Git Bash
+# Windows PowerShell： [Convert]::ToBase64String([IO.File]::ReadAllBytes("$HOME\.longbridge\openapi\tokens\$client_id"))
+```
+
+在 VPS 的 `.env` 里新增：
+
+```
+LONGBRIDGE_OAUTH_TOKEN_CACHE_B64=<上面输出的 base64 字符串>
+```
+
+> 不配长桥也能跑：`/api/market` 自动降级回 Alpha Vantage（此时需填 `ALPHA_VANTAGE_API_KEY`）。
+> token 约 90 天过期并自动刷新；容器重建后首次请求会从 B64 自动恢复，无需人工干预。
+
 ### 4. 构建并启动
 
 ```bash
@@ -208,6 +229,9 @@ systemctl daemon-reload && systemctl enable --now ibkr-dashboard
 | `IBKR_FLEX_CACHE_SECONDS` | 否 | 组合缓存秒数，默认 600 |
 | `ALPHA_VANTAGE_API_KEY` | 否 | 财报日历 + QQQ 行情用 |
 | `EARNINGS_CACHE_SECONDS` | 否 | 财报缓存秒数，默认 86400 |
-| `MARKET_CACHE_SECONDS` | 否 | 行情缓存秒数，默认 300（建议 7200，控制 25 次/天免费额度） |
+| `MARKET_CACHE_SECONDS` | 否 | 行情缓存秒数，默认 300（配置长桥后走实时行情，不耗 Alpha Vantage 额度） |
 | `BENCHMARK_CACHE_SECONDS` | 否 | 基准行情缓存秒数，默认 86400（QQQ 日线，1 次/天） |
+| `LONGBRIDGE_OAUTH_CLIENT_ID` | 否 | 长桥 OAuth client_id，`/api/market` 首选行情源（未配置时回退 Alpha Vantage） |
+| `LONGBRIDGE_REGION` | 否 | 长桥接入区，国内填 `cn` |
+| `LONGBRIDGE_OAUTH_TOKEN_CACHE_B64` | 否 | Docker/CI：本机 token 缓存 base64 后填入，容器启动自动恢复到 `~/.longbridge` |
 | `DB_PASSWORD` 等 | 否 | 以后加数据库时在 `.env` 新增，compose 里 `${DB_PASSWORD}` 引用 |
