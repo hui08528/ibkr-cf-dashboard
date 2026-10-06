@@ -1,6 +1,9 @@
+import { fetchDailyCandlesticks, isLongbridgeConfigured } from "./lib/longbridge.js";
+
 const ALPHA_VANTAGE_URL = "https://www.alphavantage.co/query";
 
 let cachedBenchmark = null;
+let cachedSource = null;
 let cachedAt = 0;
 
 const BENCHMARK_SYMBOL = "QQQ";
@@ -11,29 +14,59 @@ export async function onRequestGet({ env }) {
 
   try {
     const apiKey = env.ALPHA_VANTAGE_API_KEY;
-    if (!apiKey) {
+    const lbConfigured = isLongbridgeConfigured();
+
+    if (!lbConfigured && !apiKey) {
       return json(503, {
-        error: "Alpha Vantage is not configured",
-        message: "Set ALPHA_VANTAGE_API_KEY in Cloudflare environment variables.",
+        error: "No benchmark data source configured",
+        message: "Set LONGBRIDGE_OAUTH_CLIENT_ID or ALPHA_VANTAGE_API_KEY.",
       });
     }
 
     if (cachedBenchmark && Date.now() - cachedAt < cacheTtlMs) {
       return json(200, {
-        source: "alpha-vantage",
+        source: cachedSource,
         updatedAt: new Date(cachedAt).toISOString(),
         benchmark: cachedBenchmark,
         cached: true,
       });
     }
 
-    const benchmark = await fetchBenchmarkSeries(apiKey);
+    let benchmark = null;
+    let source = "alpha-vantage";
+
+    // 长桥日K优先（前复权），失败时回退 Alpha Vantage
+    if (lbConfigured) {
+      const points = await fetchDailyCandlesticks(BENCHMARK_SYMBOL, MAX_POINTS);
+      if (points && points.length) {
+        benchmark = {
+          symbol: BENCHMARK_SYMBOL,
+          name: "Invesco QQQ Trust",
+          nameCn: "纳斯达克100 ETF",
+          points,
+        };
+        source = "longbridge";
+      } else if (!apiKey) {
+        // 无 AV key：保留长桥的失败原因，避免静默返回空数据
+        return json(502, {
+          error: "Longbridge benchmark unavailable",
+          message: "长桥日K获取失败且未配置 Alpha Vantage 兜底。",
+        });
+      }
+    }
+
+    if (!benchmark && apiKey) {
+      benchmark = await fetchBenchmarkSeries(apiKey);
+      source = "alpha-vantage";
+    }
+
     if (benchmark.points.length) {
       cachedBenchmark = benchmark;
+      cachedSource = source;
       cachedAt = Date.now();
     }
     return json(200, {
-      source: "alpha-vantage",
+      source,
       updatedAt: new Date(cachedAt || Date.now()).toISOString(),
       benchmark,
     });

@@ -230,7 +230,7 @@ systemctl daemon-reload && systemctl enable --now ibkr-dashboard
 | `ALPHA_VANTAGE_API_KEY` | 否 | 财报日历 + QQQ 行情用 |
 | `EARNINGS_CACHE_SECONDS` | 否 | 财报缓存秒数，默认 86400 |
 | `MARKET_CACHE_SECONDS` | 否 | 行情缓存秒数，默认 300（配置长桥后走实时行情，不耗 Alpha Vantage 额度） |
-| `BENCHMARK_CACHE_SECONDS` | 否 | 基准行情缓存秒数，默认 86400（QQQ 日线，1 次/天） |
+| `BENCHMARK_CACHE_SECONDS` | 否 | 基准行情缓存秒数，默认 86400（配置长桥后 QQQ 日线走 candlesticks，不耗 AV 额度） |
 | `LONGBRIDGE_OAUTH_CLIENT_ID` | 否 | 长桥 OAuth client_id，`/api/market` 首选行情源（未配置时回退 Alpha Vantage） |
 | `LONGBRIDGE_REGION` | 否 | 长桥接入区，国内填 `cn` |
 | `LONGBRIDGE_OAUTH_TOKEN_CACHE_B64` | 否 | Docker/CI：本机 token 缓存 base64 后填入，容器启动自动恢复到 `~/.longbridge` |

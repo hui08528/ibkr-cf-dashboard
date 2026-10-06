@@ -7,8 +7,8 @@
     "node": ">=20"
   },
   "scripts": {
-    "start": "node server.js",
-    "dev": "node --watch server.js",
+    "start": "node --env-file-if-exists=.env --use-env-proxy server.js",
+    "dev": "node --env-file-if-exists=.env --use-env-proxy --watch server.js",
     "check": "node --check server.js && node --check public/app.js && node --check functions/api/portfolio.js && node --check functions/api/earnings.js && node --check functions/api/market.js && node --check functions/api/benchmark.js"
   },
   "dependencies": {

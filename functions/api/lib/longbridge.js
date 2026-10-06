@@ -215,7 +215,17 @@ function toLongbridgeSymbol(code) {
 // 量比 / 换手率 / PE / PB / 振幅 —— 一次调用，失败不致命
 async function fetchCalcIndex(ctx, symbol) {
   const lb = getLb();
-  const out = { volumeRatio: null, turnoverRate: null, peRatio: null, pbRatio: null, amplitude: null, changeRate: null };
+  const out = {
+    volumeRatio: null,
+    turnoverRate: null,
+    peRatio: null,
+    pbRatio: null,
+    amplitude: null,
+    changeRate: null,
+    dividendRatioTtm: null,
+    ytdChangeRate: null,
+    totalMarketValue: null,
+  };
   if (!lb) return out;
   try {
     const rows = await ctx.calcIndexes(
@@ -227,6 +237,9 @@ async function fetchCalcIndex(ctx, symbol) {
         lb.CalcIndex.VolumeRatio,
         lb.CalcIndex.PeTtmRatio,
         lb.CalcIndex.PbRatio,
+        lb.CalcIndex.DividendRatioTtm,
+        lb.CalcIndex.YtdChangeRate,
+        lb.CalcIndex.TotalMarketValue,
       ]
     );
     const row = rows && rows[0];
@@ -237,6 +250,9 @@ async function fetchCalcIndex(ctx, symbol) {
       out.volumeRatio = num(row.volumeRatio);
       out.peRatio = num(row.peTtmRatio);
       out.pbRatio = num(row.pbRatio);
+      out.dividendRatioTtm = num(row.dividendRatioTtm);
+      out.ytdChangeRate = num(row.ytdChangeRate);
+      out.totalMarketValue = num(row.totalMarketValue);
     }
   } catch {
     // 增强字段失败不致命，保留 null
@@ -260,6 +276,9 @@ export async function fetchQuote(code, meta = {}) {
     peRatio: null,
     pbRatio: null,
     amplitude: null,
+    dividendRatioTtm: null,
+    ytdChangeRate: null,
+    totalMarketValue: null,
     open: null,
     high: null,
     low: null,
@@ -321,6 +340,9 @@ export async function fetchQuote(code, meta = {}) {
       peRatio: calc.peRatio,
       pbRatio: calc.pbRatio,
       amplitude: calc.amplitude,
+      dividendRatioTtm: calc.dividendRatioTtm,
+      ytdChangeRate: calc.ytdChangeRate,
+      totalMarketValue: calc.totalMarketValue,
       open,
       high,
       low,
@@ -332,5 +354,29 @@ export async function fetchQuote(code, meta = {}) {
   } catch (error) {
     if (isConnectionError(error)) markCooldown(error);
     return { ...base, error: error.message };
+  }
+}
+
+// 日K序列（benchmark 用）：返回 [{ date, close }]，失败返回 null 让上层回退 Alpha Vantage
+export async function fetchDailyCandlesticks(code, count = 750) {
+  const ctx = await getCtx();
+  if (!ctx) return null;
+  const symbol = toLongbridgeSymbol(code);
+  const lb = getLb();
+  if (!symbol || !lb) return null;
+  try {
+    const bars = await ctx.candlesticks(symbol, lb.Period.Day, count, lb.AdjustType.ForwardAdjust, lb.TradeSessions.Intraday);
+    if (!bars || !bars.length) return null;
+    return bars
+      .map((bar) => ({
+        date: new Date(bar.timestamp).toISOString().slice(0, 10),
+        close: num(bar.close),
+      }))
+      .filter((point) => point.date && point.close > 0)
+      .sort((a, b) => a.date.localeCompare(b.date));
+  } catch (error) {
+    if (isConnectionError(error)) markCooldown(error);
+    console.warn(`[longbridge] 日K获取失败 ${symbol}: ${error.message}`);
+    return null;
   }
 }
