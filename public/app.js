@@ -522,12 +522,14 @@ function renderQuoteCard(quote) {
   const changeTip = `涨跌额：现价较昨日收盘价 ${quote.previousClose}，每份${up ? "上涨" : "下跌"} ${Math.abs(change).toFixed(2)}`;
 
   const risk = hasPremium ? assessRisk(quote) : null;
+  // 溢价钱数 = 现价 − IOPV（与官方溢价率同一口径），每份多掏/少掏多少
+  const premiumMoney = quote.iopv ? Math.round((quote.price - quote.iopv) * 1000) / 1000 : null;
 
   const premiumBlock = hasPremium
     ? `
       <div class="market-premium ${premiumLevelClass(premium)}${quote.premiumLowest ? " is-lowest" : ""}">
         ${quote.premiumLowest ? `<span class="premium-tag">同类最低</span>` : ""}
-        <span class="premium-rate">溢价 ${premium > 0 ? "+" : ""}${premium.toFixed(2)}%</span>
+        <span class="premium-rate">溢价 ${premium > 0 ? "+" : ""}${premium.toFixed(2)}%${premiumMoney !== null ? `（${premiumMoney > 0 ? "+" : ""}${premiumMoney}元）` : ""}</span>
       </div>
       <div class="market-premium-meta">
         ${quote.iopv !== null && quote.iopv !== undefined ? `IOPV ${quote.iopv}` : ""}
