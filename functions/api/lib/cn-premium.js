@@ -15,6 +15,25 @@ const GBK = new TextDecoder("gbk");
 const navCache = new Map(); // code -> { iopv, nav, premiumRate, navDate, expiresAt }
 const NAV_CACHE_TTL_MS = 3600 * 1000;
 
+// 仅 Node + 配置了 CN_HTTP_PROXY 时启用：海外 VPS 让国内行情接口走回国代理。
+// dispatcher 是 undici（Node 内置 fetch 的底层）专有选项，不影响 Cloudflare 等其他运行时。
+let proxyDispatcherPromise;
+function getProxyDispatcher() {
+  if (!proxyDispatcherPromise) {
+    proxyDispatcherPromise = (async () => {
+      const proxyUrl = globalThis.process?.env?.CN_HTTP_PROXY;
+      if (!proxyUrl || !globalThis.process.versions?.node) return null;
+      try {
+        const { ProxyAgent } = await import("undici");
+        return new ProxyAgent(proxyUrl);
+      } catch {
+        return null;
+      }
+    })();
+  }
+  return proxyDispatcherPromise;
+}
+
 function numOrNull(value) {
   const n = Number(value);
   return Number.isFinite(n) && n > 0 ? n : null;
@@ -23,9 +42,10 @@ function numOrNull(value) {
 // 腾讯：v_sz159509="..."; 关键段 [77]=溢价率 [78]=IOPV [81]=单位净值
 async function fetchTencentInfo(code) {
   const market = /^[569]/.test(code) ? "sh" : "sz"; // 沪：5/6/9 开头，深：0/1/2/3 开头
-  const res = await fetch(`https://qt.gtimg.cn/q=${market}${code}`, {
-    headers: { "User-Agent": "Mozilla/5.0" },
-  });
+  const init = { headers: { "User-Agent": "Mozilla/5.0" } };
+  const dispatcher = await getProxyDispatcher();
+  if (dispatcher) init.dispatcher = dispatcher;
+  const res = await fetch(`https://qt.gtimg.cn/q=${market}${code}`, init);
   if (!res.ok) throw new Error(`tencent HTTP ${res.status}`);
   const text = GBK.decode(new Uint8Array(await res.arrayBuffer()));
   const m = text.match(/"([^"]*)"/);
@@ -42,9 +62,12 @@ async function fetchTencentInfo(code) {
 
 // 新浪基金：var hq_str_f_159509="名称,单位净值,累计净值,估算净值,净值日期,...";
 async function fetchSinaInfo(code) {
-  const res = await fetch(`https://hq.sinajs.cn/list=f_${code}`, {
+  const init = {
     headers: { Referer: "https://finance.sina.com.cn/", "User-Agent": "Mozilla/5.0" },
-  });
+  };
+  const dispatcher = await getProxyDispatcher();
+  if (dispatcher) init.dispatcher = dispatcher;
+  const res = await fetch(`https://hq.sinajs.cn/list=f_${code}`, init);
   if (!res.ok) throw new Error(`sina HTTP ${res.status}`);
   const text = GBK.decode(new Uint8Array(await res.arrayBuffer()));
   const m = text.match(/"([^"]*)"/);
