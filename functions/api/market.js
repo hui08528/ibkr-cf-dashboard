@@ -2,23 +2,44 @@ import { fetchQuote as fetchLongbridgeQuote, isLongbridgeConfigured } from "./li
 
 const ALPHA_VANTAGE_URL = "https://www.alphavantage.co/query";
 
-let cachedQuotes = null;
+let cachedQuotes = null; // 美股
+let cachedCnQuotes = null; // A 股
 let cachedSource = null;
 let cachedAt = 0;
 
-const instruments = [
+// 美股核心 ETF 与指数
+const usInstruments = [
+  // NDXTMC：纳指100 科技板块市值加权指数
+  { symbol: "NDXTMC", name: "NASDAQ 100 Technology Sector Market-Cap Index", nameCn: "纳指100科技市值加权指数", longbridgeSymbol: ".NDXTMC.US" },
+  // NDX 是指数不是证券，长桥代码需前置点号：.NDX.US
+  { symbol: "NDX", name: "NASDAQ-100 Index", nameCn: "纳斯达克100 指数", longbridgeSymbol: ".NDX.US" },
   { symbol: "QQQ", name: "Invesco QQQ Trust", nameCn: "纳斯达克100 ETF" },
+  { symbol: "VOO", name: "Vanguard S&P 500 ETF", nameCn: "标普500 ETF" },
+  { symbol: "SMH", name: "VanEck Semiconductor ETF", nameCn: "半导体 ETF" },
+  { symbol: "VGT", name: "Vanguard Information Technology ETF", nameCn: "信息科技 ETF" },
+];
+
+// 场内 QDII（追踪同一批海外指数的国内 ETF）
+const cnInstruments = [
+  // 159509.SZ：景顺长城纳斯达克科技 ETF，追踪 NDXTMC
+  { symbol: "159509", displaySymbol: "159509.SZ", name: "Invesco Great Wall Nasdaq-100 Technology Sector Market-Cap Weighted ETF (QDII)", nameCn: "景顺长城纳斯达克科技ETF(QDII)", longbridgeSymbol: "159509.SZ" },
+  // 以下均追踪纳斯达克100（NDX）
+  { symbol: "159941", displaySymbol: "159941.SZ", name: "广发纳指100ETF", nameCn: "广发纳指100ETF", longbridgeSymbol: "159941.SZ" },
+  { symbol: "513100", displaySymbol: "513100.SH", name: "国泰纳斯达克100(QDII-ETF)", nameCn: "国泰纳斯达克100ETF(QDII)", longbridgeSymbol: "513100.SH" },
+  { symbol: "159659", displaySymbol: "159659.SZ", name: "招商纳斯达克100ETF(QDII)", nameCn: "招商纳斯达克100ETF(QDII)", longbridgeSymbol: "159659.SZ" },
+  { symbol: "513300", displaySymbol: "513300.SH", name: "华夏纳斯达克100ETF(QDII)", nameCn: "华夏纳斯达克100ETF(QDII)", longbridgeSymbol: "513300.SH" },
 ];
 
 export async function onRequestGet({ env }) {
   const cacheTtlMs = Number(env.MARKET_CACHE_SECONDS || 300) * 1000;
 
   try {
-    if (cachedQuotes && Date.now() - cachedAt < cacheTtlMs) {
+    if (cachedQuotes && cachedCnQuotes && Date.now() - cachedAt < cacheTtlMs) {
       return json(200, {
         source: cachedSource,
         updatedAt: new Date(cachedAt).toISOString(),
         quotes: cachedQuotes,
+        cnQuotes: cachedCnQuotes,
         cached: true,
       });
     }
@@ -28,28 +49,29 @@ export async function onRequestGet({ env }) {
 
     if (!lbConfigured && !apiKey) {
       return json(503, {
-        error: "No market data source configured",
+       error: "No market data source configured",
         message: "Set LONGBRIDGE_OAUTH_CLIENT_ID or ALPHA_VANTAGE_API_KEY.",
       });
     }
 
-    const quotes = [];
-    let avCalls = 0; // 限制 Alpha Vantage 免费额度（调用间至少间隔 1.2s）
-    for (const instrument of instruments) {
-      const quote = await loadQuote(instrument, { lbConfigured, apiKey, avCalls });
-      if (quote.source === "alpha-vantage") avCalls += 1;
-      quotes.push(quote);
-    }
+    // avCalls 在两组建共享：限制 Alpha Vantage 免费额度（调用间至少间隔 1.2s）
+    const state = { lbConfigured, apiKey, avCalls: 0 };
+    const quotes = await loadGroup(usInstruments, state);
+    const cnQuotes = await loadGroup(cnInstruments, state);
 
-    if (quotes.some((quote) => quote.available)) {
+    if ([...quotes, ...cnQuotes].some((quote) => quote.available)) {
       cachedQuotes = quotes;
+      cachedCnQuotes = cnQuotes;
       cachedAt = Date.now();
-      cachedSource = quotes.some((quote) => quote.source === "longbridge") ? "longbridge" : "alpha-vantage";
+      cachedSource = [...quotes, ...cnQuotes].some((quote) => quote.source === "longbridge")
+        ? "longbridge"
+        : "alpha-vantage";
     }
     return json(200, {
       source: cachedSource || "alpha-vantage",
       updatedAt: new Date(cachedAt || Date.now()).toISOString(),
       quotes,
+      cnQuotes,
     });
   } catch (error) {
     return json(502, {
@@ -57,6 +79,16 @@ export async function onRequestGet({ env }) {
       message: error.message,
     });
   }
+}
+
+async function loadGroup(instruments, state) {
+  const quotes = [];
+  for (const instrument of instruments) {
+    const quote = await loadQuote(instrument, state);
+    if (quote.source === "alpha-vantage") state.avCalls += 1;
+    quotes.push(quote);
+  }
+  return quotes;
 }
 
 // 长桥主源 → Alpha Vantage 兜底

@@ -55,6 +55,7 @@ let earningsStatus = "idle";
 let popularEarningsBySymbol = {};
 let popularEarningsStatus = "idle";
 let marketQuotes = [];
+let cnMarketQuotes = [];
 let marketStatus = "idle";
 let fearGreed = null;
 let fearGreedStatus = "idle";
@@ -463,6 +464,7 @@ async function loadMarketSnapshot() {
     }
     const body = await response.json();
     marketQuotes = body.quotes || [];
+    cnMarketQuotes = body.cnQuotes || [];
     marketStatus = "ready";
   } catch (error) {
     console.warn(error);
@@ -475,6 +477,7 @@ async function loadMarketSnapshot() {
 
 function renderMarketSnapshot() {
   const grid = document.getElementById("market-grid");
+  const cnGrid = document.getElementById("cn-market-grid");
   const status = document.getElementById("market-status");
   if (!grid) return;
 
@@ -490,37 +493,42 @@ function renderMarketSnapshot() {
 
   if (marketStatus === "loading") {
     grid.innerHTML = `<div class="empty-cell">正在加载行情...</div>`;
+    if (cnGrid) cnGrid.innerHTML = "";
     return;
   }
 
   if (marketStatus === "unavailable") {
     grid.innerHTML = `<div class="empty-cell">行情暂不可用，请检查 Alpha Vantage 配置或额度。</div>`;
+    if (cnGrid) cnGrid.innerHTML = "";
     return;
   }
 
-  if (!marketQuotes.length) {
-    grid.innerHTML = `<div class="empty-cell">暂无行情数据</div>`;
-    return;
+  grid.innerHTML = marketQuotes.length
+    ? marketQuotes.map(renderQuoteCard).join("")
+    : `<div class="empty-cell">暂无行情数据</div>`;
+
+  if (cnGrid) {
+    cnGrid.innerHTML = cnMarketQuotes.length ? cnMarketQuotes.map(renderQuoteCard).join("") : "";
   }
+}
 
-  grid.innerHTML = marketQuotes.map((quote) => {
-    const available = quote.available && quote.price;
-    const change = number(quote.change);
-    const pct = number(quote.changePercent);
-    const up = change >= 0;
+function renderQuoteCard(quote) {
+  const available = quote.available && quote.price;
+  const change = number(quote.change);
+  const pct = number(quote.changePercent);
+  const up = change >= 0;
 
-    return `
-      <div class="market-item">
-        <div class="market-symbol">${escapeHtml(quote.displaySymbol || quote.symbol)}</div>
-        <div class="market-name">${escapeHtml(quote.nameCn || quote.name || quote.symbol)}</div>
-        <div class="market-subname">${escapeHtml(quote.name || "")}</div>
-        <div class="market-price">${available ? formatPlainPrice(quote.price) : "暂无数据"}</div>
-        <div class="market-change ${available ? (up ? "up" : "down") : "market-unavailable"}">
-          ${available ? `${up ? "+" : ""}${change.toFixed(2)} (${up ? "+" : ""}${pct.toFixed(2)}%)` : marketErrorLabel(quote.error)}
-        </div>
+  return `
+    <div class="market-item">
+      <div class="market-symbol">${escapeHtml(quote.displaySymbol || quote.symbol)}</div>
+      <div class="market-name">${escapeHtml(quote.nameCn || quote.name || quote.symbol)}</div>
+      <div class="market-subname">${escapeHtml(quote.name || "")}</div>
+      <div class="market-price">${available ? formatPlainPrice(quote.price) : "暂无数据"}</div>
+      <div class="market-change ${available ? (up ? "up" : "down") : "market-unavailable"}">
+        ${available ? `${up ? "+" : ""}${change.toFixed(2)} (${up ? "+" : ""}${pct.toFixed(2)}%)` : marketErrorLabel(quote.error)}
       </div>
-    `;
-  }).join("");
+    </div>
+  `;
 }
 
 function marketErrorLabel(error) {
@@ -1603,7 +1611,8 @@ function formatCurrency(value) {
 }
 
 function formatPlainPrice(value) {
-  return number(value).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  // 至少2位（美股习惯补零），最多3位（A股ETF/指数常见3位小数，需完整显示）
+  return number(value).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 3 });
 }
 
 function signedCurrency(value) {

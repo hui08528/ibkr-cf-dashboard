@@ -289,7 +289,7 @@ export async function fetchQuote(code, meta = {}) {
   };
   if (!ctx) return { ...base, error: "Longbridge 未配置或不可用" };
 
-  const symbol = toLongbridgeSymbol(code);
+  const symbol = meta.longbridgeSymbol || toLongbridgeSymbol(code);
   if (!symbol) return { ...base, error: `无法转换代码 ${code}` };
 
   try {
@@ -326,7 +326,7 @@ export async function fetchQuote(code, meta = {}) {
 
     return {
       ...meta,
-      displaySymbol: meta.displaySymbol || symbol,
+      displaySymbol: meta.displaySymbol || meta.symbol || symbol,
       name,
       nameCn,
       price,
