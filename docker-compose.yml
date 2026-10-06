@@ -20,6 +20,10 @@ services:
       PORT: 3000
       # 仅新浪/腾讯国内行情接口走此代理（代码内按需启用），其他请求直连
       CN_HTTP_PROXY: http://127.0.0.1:7897
+      STRATEGY_FILE: /data/strategy.json
+    volumes:
+      # 调仓模型策略配置持久化，容器重建不丢
+      - ./data:/data
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 30s

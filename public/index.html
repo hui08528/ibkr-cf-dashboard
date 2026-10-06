@@ -28,6 +28,9 @@
       <a href="#insights" class="nav-item" data-target="insights">
         <span class="nav-icon">🔎</span> 洞察
       </a>
+      <a href="#rebalance" class="nav-item" data-target="rebalance">
+        <span class="nav-icon">⚖️</span> 调仓模型
+      </a>
       <a href="#framework" class="nav-item" data-target="framework">
         <span class="nav-icon">🧭</span> 投资框架
       </a>
@@ -374,6 +377,110 @@
           <h3>场内 QDII · A股</h3>
         </div>
         <div class="market-grid" id="cn-market-grid"></div>
+      </div>
+    </section>
+
+    <!-- Rebalance Model Section -->
+    <section id="section-rebalance" class="section">
+      <div class="stats-row" id="rb-context">
+        <div class="stat-box"><div class="stat-title">全账户净资产</div><div class="stat-num" id="rb-nav">—</div></div>
+        <div class="stat-box"><div class="stat-title">证券市值</div><div class="stat-num" id="rb-securities">—</div></div>
+        <div class="stat-box"><div class="stat-title">现金 / 融资</div><div class="stat-num" id="rb-cash">—</div></div>
+        <div class="stat-box"><div class="stat-title">综合杠杆</div><div class="stat-num" id="rb-leverage">—</div></div>
+      </div>
+
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-header"><h3>目标配置 vs 当前配置</h3></div>
+          <div class="chart-container" style="height: 300px;">
+            <canvas id="rb-sleeve-chart"></canvas>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header"><h3>信号看板</h3></div>
+          <div id="rb-signals" class="rb-signals"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <h3>建议行动</h3>
+          <span class="data-status" id="rb-status"></span>
+        </div>
+        <div id="rb-actions"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-header"><h3>策略桶偏离</h3></div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>策略桶</th>
+                <th class="num">目标</th>
+                <th class="num">实际</th>
+                <th class="num">偏离</th>
+                <th class="num">带宽</th>
+                <th>状态</th>
+                <th class="num">建议买卖</th>
+              </tr>
+            </thead>
+            <tbody id="rb-sleeves-body"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header"><h3>全持仓明细（IBKR + OKX + 手动）</h3></div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>代码</th>
+                <th>名称</th>
+                <th>来源</th>
+                <th class="num">数量</th>
+                <th class="num">美元价</th>
+                <th class="num">美元市值</th>
+                <th>策略桶</th>
+              </tr>
+            </thead>
+            <tbody id="rb-holdings-body"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <h3>⚙️ 模型参数与持仓配置</h3>
+          <div class="card-tools">
+            <span class="data-status" id="rb-save-status"></span>
+            <button class="btn btn-outline" id="rb-edit-toggle" type="button">展开编辑</button>
+          </div>
+        </div>
+        <div id="rb-editor" hidden>
+          <div class="rb-editor-section">
+            <h4>策略桶目标权重与带宽</h4>
+            <div class="rb-sleeve-edit" id="rb-sleeve-edit"></div>
+            <div class="rb-total" id="rb-total">合计 —</div>
+          </div>
+
+          <div class="rb-editor-section">
+            <h4>信号阈值</h4>
+            <div class="rb-params" id="rb-params-edit"></div>
+          </div>
+
+          <div class="rb-editor-section">
+            <h4>手动补录持仓（国内 QDII）</h4>
+            <div id="rb-manual-edit"></div>
+            <button class="btn btn-outline" id="rb-add-manual" type="button">+ 添加一行</button>
+          </div>
+
+          <div class="rb-editor-actions">
+            <button class="btn btn-primary" id="rb-save" type="button">保存配置</button>
+            <button class="btn btn-outline" id="rb-reset" type="button">重置修改</button>
+          </div>
+        </div>
       </div>
     </section>
 

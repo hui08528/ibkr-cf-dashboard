@@ -1416,3 +1416,104 @@ body {
   .leverage-scale-line { display: none; }
   .leverage-marker { display: none; }
 }
+
+/* —— 调仓模型 —— */
+.stat-num.pnl-warn { color: #d97706; }
+[data-theme="dark"] .stat-num.pnl-warn { color: #fbbf24; }
+
+/* 偏离表 */
+.rb-ok { color: var(--text-muted); }
+.rb-under { color: #d97706; }
+.rb-over { color: var(--down); }
+[data-theme="dark"] .rb-under { color: #fbbf24; }
+
+.rb-badge {
+  display: inline-block;
+  padding: 2px 9px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.rb-badge-ok { background: var(--up-bg); color: var(--up); }
+.rb-badge-under { background: rgba(245, 158, 11, 0.15); color: #d97706; }
+.rb-badge-over { background: var(--down-bg); color: var(--down); }
+.rb-badge-source { background: var(--surface-alt); border: 1px solid var(--border); color: var(--text-muted); }
+[data-theme="dark"] .rb-badge-under { color: #fbbf24; }
+
+/* 行动清单 */
+.rb-action {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 11px 0;
+  border-bottom: 1px solid var(--border-light);
+}
+.rb-action:last-child { border-bottom: none; }
+.rb-action-tag {
+  flex: none;
+  min-width: 42px;
+  text-align: center;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+}
+.rb-action-reduce .rb-action-tag,
+.rb-action-leverage .rb-action-tag,
+.rb-action-risk .rb-action-tag { background: var(--down-bg); border-color: transparent; color: var(--down); }
+.rb-action-add .rb-action-tag,
+.rb-action-opportunity .rb-action-tag { background: var(--up-bg); border-color: transparent; color: var(--up); }
+.rb-action-trim .rb-action-tag { background: rgba(245, 158, 11, 0.15); border-color: transparent; color: #d97706; }
+.rb-action-title { font-weight: 600; }
+.rb-action-detail { color: var(--text-muted); font-size: 13px; margin-top: 2px; }
+
+/* 信号灯 */
+.rb-chip-row { display: flex; flex-wrap: wrap; gap: 8px; padding: 4px 0; }
+.rb-chip {
+  padding: 4px 11px;
+  border-radius: 20px;
+  font-size: 13px;
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+}
+.rb-chip-ok { border-color: transparent; background: var(--up-bg); color: var(--up); }
+.rb-chip-warn { border-color: transparent; background: rgba(245, 158, 11, 0.15); color: #d97706; }
+.rb-chip-danger { border-color: transparent; background: var(--down-bg); color: var(--down); }
+[data-theme="dark"] .rb-chip-warn { color: #fbbf24; }
+
+/* 编辑器 */
+.rb-editor-section { margin-bottom: 22px; }
+.rb-editor-section h4 { margin-bottom: 10px; }
+.rb-edit-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.rb-edit-name { width: 88px; color: var(--text-muted); }
+.rb-num-input { width: 92px; }
+.rb-edit-row label { display: inline-flex; align-items: center; gap: 5px; color: var(--text-muted); }
+.rb-total { font-weight: 700; margin-top: 6px; }
+.rb-total-ok { color: var(--up); }
+.rb-total-bad { color: var(--down); }
+
+.rb-params {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+.rb-param { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.rb-param span { color: var(--text-muted); white-space: nowrap; }
+.rb-param .rb-num-input { width: 100px; }
+
+#rb-manual-edit { margin-bottom: 10px; }
+.rb-remove { padding: 4px 10px; }
+.rb-editor-actions { display: flex; gap: 10px; margin-top: 8px; }
+
+@media (max-width: 768px) {
+  .rb-params { grid-template-columns: 1fr; }
+}

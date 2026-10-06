@@ -61,6 +61,27 @@ let fearGreed = null;
 let fearGreedStatus = "idle";
 let benchmarkData = null;
 let benchmarkStatus = "idle";
+let rebalanceData = null;
+let rebalanceStatus = "idle";
+let strategyDraft = null;
+let rbSleeveChart = null;
+
+// 手动持仓代码候选（与 market.js cnInstruments 对应，允许自由输入）
+const cnQdiiCandidates = ["159509", "159941", "513100", "159659", "513300"];
+
+const PARAM_FIELDS = [
+  { key: "drawdownNormal", label: "常规调整 %" },
+  { key: "drawdownBear", label: "熊市 %" },
+  { key: "premiumCheap", label: "溢价便宜 %" },
+  { key: "premiumFair", label: "溢价合理 %" },
+  { key: "premiumExpensive", label: "溢价昂贵 %" },
+  { key: "leverageWarn", label: "杠杆警示" },
+  { key: "leverageDanger", label: "杠杆危险" },
+  { key: "fgExtremeFear", label: "极端恐惧" },
+  { key: "fgExtremeGreed", label: "极端贪婪" },
+  { key: "smaTrendDays", label: "趋势均线天" },
+  { key: "cnyUsd", label: "人民币汇率" },
+];
 let monthlyReturnMode = "rate"; // 月度收益网格展示模式："rate"=收益率 / "amount"=收益额
 let perfChart;
 let sectorChart;
@@ -80,6 +101,7 @@ const titles = {
   transactions: "交易记录",
   analytics: "收益分析",
   insights: "市场洞察",
+  rebalance: "调仓模型",
   framework: "投资框架",
   guide: "部署指南",
 };
@@ -110,6 +132,7 @@ async function init() {
   wireNavigation();
   wireControls();
   wireFrameworkTopics();
+  wireRebalanceEditor();
   applyPortfolio(demoData, "正在连接 IBKR...");
 
   try {
@@ -855,6 +878,385 @@ function showSection(name) {
   if (target === "transactions") renderTxTable(currentTxFilter());
   if (target === "analytics") renderAnalytics();
   if (target === "insights") renderInsights();
+  if (target === "rebalance") {
+    renderRebalance();
+    if (rebalanceStatus === "idle" || rebalanceStatus === "unavailable") loadRebalance();
+  }
+}
+
+// —— 调仓模型 ——
+
+async function loadRebalance() {
+  rebalanceStatus = "loading";
+  renderRebalance();
+  try {
+    const response = await fetch("/api/rebalance", { headers: { Accept: "application/json" } });
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      throw new Error(body.message || `Rebalance API failed with ${response.status}`);
+    }
+    rebalanceData = await response.json();
+    rebalanceStatus = "ready";
+  } catch (error) {
+    console.warn(error);
+    rebalanceData = null;
+    rebalanceStatus = "unavailable";
+  }
+  renderRebalance();
+}
+
+function setRbCell(id, html) {
+  const element = document.getElementById(id);
+  if (element) element.innerHTML = html;
+}
+
+function rbEmpty(text) {
+  return `<div class="empty-cell">${escapeHtml(text)}</div>`;
+}
+
+function renderRbStatus() {
+  const map = { idle: "", loading: "正在加载模型...", ready: "模型已更新", unavailable: "数据暂不可用" };
+  const element = document.getElementById("rb-status");
+  if (element) element.textContent = map[rebalanceStatus] || "";
+}
+
+function renderRebalance() {
+  renderRbStatus();
+
+  if (rebalanceStatus !== "ready" || !rebalanceData) {
+    const text = rebalanceStatus === "loading" ? "正在加载调仓数据..." : "调仓数据暂不可用，请稍后刷新";
+    for (const id of ["rb-sleeves-body", "rb-holdings-body", "rb-actions", "rb-signals"]) setRbCell(id, rbEmpty(text));
+    return;
+  }
+
+  const d = rebalanceData;
+
+  // 上下文条
+  document.getElementById("rb-nav").textContent = formatCurrency(d.nav);
+  document.getElementById("rb-securities").textContent = formatCurrency(d.signals.leverage.securities);
+
+  const cash = d.signals.cash;
+  const cashEl = document.getElementById("rb-cash");
+  if (cash.debt > 0) {
+    cashEl.textContent = `融资 -${formatCurrency(cash.debt)}`;
+    cashEl.className = "stat-num pnl-down";
+  } else {
+    cashEl.textContent = formatCurrency(cash.availableCash);
+    cashEl.className = "stat-num";
+  }
+
+  const lev = d.signals.leverage;
+  const levEl = document.getElementById("rb-leverage");
+  levEl.textContent = lev.leverage ? `${lev.leverage}x` : "—";
+  levEl.className =
+    "stat-num " + (lev.leverage >= 3 ? "pnl-down" : lev.leverage >= 2.5 ? "pnl-warn" : "");
+
+  renderRbSleeves(d);
+  renderRbActions(d);
+  renderRbSignals(d);
+  renderRbHoldings(d);
+  renderRbChart(d);
+}
+
+function renderRbSleeves(d) {
+  setRbCell(
+    "rb-sleeves-body",
+    d.sleeves
+      .map((sleeve) => {
+        const statusLabel = { ok: "正常", under: "低配", over: "超配" }[sleeve.status];
+        const trade =
+          sleeve.tradeToTarget > 0
+            ? `买入 ${formatCurrency(sleeve.tradeToTarget)}`
+            : sleeve.tradeToTarget < 0
+              ? `卖出 ${formatCurrency(Math.abs(sleeve.tradeToTarget))}`
+              : "—";
+        return `
+          <tr>
+            <td>${escapeHtml(sleeve.name)}</td>
+            <td class="num">${sleeve.target}%</td>
+            <td class="num">${sleeve.actual}%</td>
+            <td class="num rb-${sleeve.status}">${sleeve.diff > 0 ? "+" : ""}${sleeve.diff}</td>
+            <td class="num">±${sleeve.band}</td>
+            <td><span class="rb-badge rb-badge-${sleeve.status}">${statusLabel}</span></td>
+            <td class="num">${trade}</td>
+          </tr>`;
+      })
+      .join("")
+  );
+}
+
+const RB_TYPE_LABEL = {
+  reduce: "减仓",
+  add: "加仓",
+  leverage: "杠杆",
+  switch: "切换",
+  opportunity: "机会",
+  trim: "止盈",
+  risk: "风险",
+};
+
+function renderRbActions(d) {
+  if (!d.actions.length) {
+    setRbCell("rb-actions", rbEmpty("当前配置在目标范围内，无需调仓"));
+    return;
+  }
+  setRbCell(
+    "rb-actions",
+    d.actions
+      .map(
+        (action) => `
+        <div class="rb-action rb-action-${action.type}">
+          <span class="rb-action-tag">${RB_TYPE_LABEL[action.type] || action.type}</span>
+          <div class="rb-action-body">
+            <div class="rb-action-title">${escapeHtml(action.title)}</div>
+            <div class="rb-action-detail">${escapeHtml(action.detail)}</div>
+          </div>
+        </div>`
+      )
+      .join("")
+  );
+}
+
+function rbChip(label, tone) {
+  return `<span class="rb-chip rb-chip-${tone}">${escapeHtml(label)}</span>`;
+}
+
+function renderRbSignals(d) {
+  const s = d.signals;
+  const chips = [];
+
+  if (s.drawdown.available) {
+    const tone = s.drawdown.level === "bear" ? "danger" : s.drawdown.level === "normal" ? "warn" : "ok";
+    chips.push(rbChip(`回撤 ${s.drawdown.dd}%`, tone));
+  }
+  if (s.trend.available) {
+    chips.push(rbChip(`趋势 ${s.trend.direction === "up" ? "上升" : "走弱"}`, s.trend.direction === "up" ? "ok" : "warn"));
+  }
+  if (s.fearGreed.available) {
+    const tone = s.fearGreed.zone === "xfear" || s.fearGreed.zone === "xgreed" ? "warn" : "ok";
+    chips.push(rbChip(`恐慌贪婪 ${s.fearGreed.score} · ${s.fearGreed.rating}`, tone));
+  }
+  if (s.leverage.available) {
+    const tone = s.leverage.leverage >= 3 ? "danger" : s.leverage.leverage >= 2.5 ? "warn" : "ok";
+    chips.push(rbChip(`综合杠杆 ${s.leverage.leverage}x`, tone));
+  }
+  if (s.cash.available) {
+    chips.push(
+      s.cash.debt > 0
+        ? rbChip(`融资负债 ${formatCurrency(s.cash.debt)}`, "danger")
+        : rbChip(`可用现金 ${formatCurrency(s.cash.availableCash)}`, "ok")
+    );
+  }
+  // 各组 QDII 最低溢价
+  const groupMin = new Map();
+  for (const row of s.premium) {
+    if (!row.group) continue;
+    groupMin.set(row.group, Math.min(groupMin.get(row.group) ?? Infinity, row.premiumRate));
+  }
+  for (const [group, min] of groupMin) chips.push(rbChip(`${group} 组最低溢价 ${min}%`, min > 5 ? "warn" : "ok"));
+
+  setRbCell("rb-signals", `<div class="rb-chip-row">${chips.join("")}</div>`);
+}
+
+function renderRbHoldings(d) {
+  const sleeveName = new Map(d.sleeves.map((sleeve) => [sleeve.id, sleeve.name]));
+  const sourceLabel = { ibkr: "IBKR", okx: "OKX", manual: "手动" };
+  setRbCell(
+    "rb-holdings-body",
+    d.holdings
+      .map(
+        (row) => `
+        <tr>
+          <td class="symbol-cell">${escapeHtml(row.symbol)}</td>
+          <td><div class="company-name">${escapeHtml(row.name)}</div></td>
+          <td><span class="rb-badge rb-badge-source">${sourceLabel[row.source] || row.source}</span></td>
+          <td class="num">${formatNumber(row.qty)}</td>
+          <td class="num">${formatCurrency(row.price)}</td>
+          <td class="num">${formatCurrency(row.marketValue)}</td>
+          <td>${escapeHtml(sleeveName.get(row.bucket) || row.bucket)}</td>
+        </tr>`
+      )
+      .join("")
+  );
+}
+
+function renderRbChart(d) {
+  if (!document.getElementById("section-rebalance").classList.contains("active")) return;
+  if (rbSleeveChart) rbSleeveChart.destroy();
+  const colors = chartColors();
+  rbSleeveChart = new Chart(document.getElementById("rb-sleeve-chart"), {
+    type: "bar",
+    data: {
+      labels: d.sleeves.map((sleeve) => sleeve.name),
+      datasets: [
+        { label: "目标 %", data: d.sleeves.map((sleeve) => sleeve.target), backgroundColor: "#2563eb" },
+        { label: "实际 %", data: d.sleeves.map((sleeve) => sleeve.actual), backgroundColor: "#f59e0b" },
+      ],
+    },
+    options: {
+      indexAxis: "y",
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: {
+        x: { ticks: { color: colors.text }, grid: { color: colors.grid } },
+        y: { ticks: { color: colors.text }, grid: { display: false } },
+      },
+      plugins: { legend: { labels: { color: colors.text } } },
+    },
+  });
+}
+
+// —— 调仓模型编辑器 ——
+
+function wireRebalanceEditor() {
+  const editor = document.getElementById("rb-editor");
+  const toggle = document.getElementById("rb-edit-toggle");
+
+  toggle?.addEventListener("click", () => {
+    if (editor.hidden) {
+      editor.hidden = false;
+      toggle.textContent = "收起编辑";
+      openStrategyEditor();
+    } else {
+      editor.hidden = true;
+      toggle.textContent = "展开编辑";
+    }
+  });
+
+  // 输入事件委托：实时同步到 strategyDraft
+  editor?.addEventListener("input", (event) => {
+    const el = event.target;
+    const key = el.dataset?.key;
+    if (!key || !strategyDraft) return;
+    if (el.dataset.scope === "sleeve") {
+      strategyDraft.sleeves[Number(el.dataset.index)][key] = Number(el.value);
+    } else if (el.dataset.scope === "param") {
+      strategyDraft.params[key] = Number(el.value);
+    } else if (el.dataset.scope === "manual") {
+      const i = Number(el.dataset.index);
+      strategyDraft.manualPositions[i][key] = key === "symbol" ? el.value : Number(el.value);
+    }
+    updateSleeveTotal();
+  });
+
+  editor?.addEventListener("click", (event) => {
+    if (event.target.id === "rb-add-manual") {
+      strategyDraft.manualPositions.push({ symbol: "", qty: 0, cost: 0, note: "" });
+      renderManualEdit();
+    }
+    const remove = event.target.closest("[data-remove-manual]");
+    if (remove) {
+      strategyDraft.manualPositions.splice(Number(remove.dataset.removeManual), 1);
+      renderManualEdit();
+    }
+  });
+
+  document.getElementById("rb-save")?.addEventListener("click", saveStrategyDraft);
+  document.getElementById("rb-reset")?.addEventListener("click", openStrategyEditor);
+}
+
+async function openStrategyEditor() {
+  setRbSaveStatus("正在加载配置...");
+  try {
+    const response = await fetch("/api/strategy", { headers: { Accept: "application/json" } });
+    strategyDraft = await response.json();
+    renderStrategyEditor();
+    setRbSaveStatus("");
+  } catch {
+    setRbSaveStatus("配置加载失败");
+  }
+}
+
+function setRbSaveStatus(text) {
+  const el = document.getElementById("rb-save-status");
+  if (el) el.textContent = text;
+}
+
+function renderStrategyEditor() {
+  renderSleeveEdit();
+  renderParamsEdit();
+  renderManualEdit();
+  updateSleeveTotal();
+}
+
+function renderSleeveEdit() {
+  document.getElementById("rb-sleeve-edit").innerHTML = strategyDraft.sleeves
+    .map(
+      (sleeve, i) => `
+    <div class="rb-edit-row">
+      <span class="rb-edit-name">${escapeHtml(sleeve.name)}</span>
+      <label>目标 <input class="input rb-num-input" type="number" step="0.1" min="0" max="100"
+        data-scope="sleeve" data-index="${i}" data-key="target" value="${sleeve.target}"></label>
+      <label>带宽 <input class="input rb-num-input" type="number" step="0.5" min="0" max="100"
+        data-scope="sleeve" data-index="${i}" data-key="band" value="${sleeve.band}"></label>
+    </div>`
+    )
+    .join("");
+}
+
+function updateSleeveTotal() {
+  const el = document.getElementById("rb-total");
+  if (!el || !strategyDraft) return;
+  const sum = strategyDraft.sleeves.reduce((acc, sleeve) => acc + (Number(sleeve.target) || 0), 0);
+  const rounded = Math.round(sum * 100) / 100;
+  el.textContent = `合计 ${rounded}%`;
+  el.className = "rb-total " + (Math.abs(rounded - 100) <= 0.01 ? "rb-total-ok" : "rb-total-bad");
+}
+
+function renderParamsEdit() {
+  document.getElementById("rb-params-edit").innerHTML = PARAM_FIELDS.map(
+    ({ key, label }) => `
+    <label class="rb-param">
+      <span>${escapeHtml(label)}</span>
+      <input class="input rb-num-input" type="number" step="any"
+        data-scope="param" data-key="${key}" value="${strategyDraft.params[key]}">
+    </label>`
+  ).join("");
+}
+
+function renderManualEdit() {
+  const options = cnQdiiCandidates.map((code) => `<option value="${code}">`).join("");
+  document.getElementById("rb-manual-edit").innerHTML =
+    strategyDraft.manualPositions
+      .map(
+        (row, i) => `
+    <div class="rb-edit-row">
+      <input class="input" list="cn-qdii-list" placeholder="代码"
+        data-scope="manual" data-index="${i}" data-key="symbol" value="${escapeHtml(row.symbol)}">
+      <label>数量 <input class="input rb-num-input" type="number" step="any" min="0"
+        data-scope="manual" data-index="${i}" data-key="qty" value="${row.qty}"></label>
+      <label>成本 <input class="input rb-num-input" type="number" step="any" min="0"
+        data-scope="manual" data-index="${i}" data-key="cost" value="${row.cost}"></label>
+      <button class="btn btn-outline rb-remove" type="button" data-remove-manual="${i}">删除</button>
+    </div>`
+      )
+      .join("") + `<datalist id="cn-qdii-list">${options}</datalist>`;
+}
+
+async function saveStrategyDraft() {
+  if (!strategyDraft) return;
+  const sum = strategyDraft.sleeves.reduce((acc, sleeve) => acc + (Number(sleeve.target) || 0), 0);
+  if (Math.abs(sum - 100) > 0.01) {
+    setRbSaveStatus("目标合计须为 100%，当前无法保存");
+    return;
+  }
+  setRbSaveStatus("保存中...");
+  try {
+    const response = await fetch("/api/strategy", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify(strategyDraft),
+    });
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      setRbSaveStatus(body.message || `保存失败 ${response.status}`);
+      return;
+    }
+    setRbSaveStatus("已保存 ✓");
+    loadRebalance();
+  } catch {
+    setRbSaveStatus("保存失败，网络错误");
+  }
 }
 
 function renderFrameworkAnalysis() {

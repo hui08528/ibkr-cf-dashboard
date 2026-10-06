@@ -7,6 +7,8 @@ import { onRequestGet as earningsHandler } from "./functions/api/earnings.js";
 import { onRequestGet as marketHandler } from "./functions/api/market.js";
 import { onRequestGet as benchmarkHandler } from "./functions/api/benchmark.js";
 import { onRequestGet as fearGreedHandler } from "./functions/api/fear-greed.js";
+import { onRequestGet as rebalanceHandler } from "./functions/api/rebalance.js";
+import { loadStrategy, saveStrategy } from "./functions/api/lib/strategy-store.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -45,6 +47,15 @@ app.get("/api/earnings", toExpress(earningsHandler));
 app.get("/api/market", toExpress(marketHandler));
 app.get("/api/benchmark", toExpress(benchmarkHandler));
 app.get("/api/fear-greed", toExpress(fearGreedHandler));
+app.get("/api/rebalance", toExpress(rebalanceHandler));
+app.get("/api/strategy", (_req, res) => res.json(loadStrategy(process.env)));
+app.put("/api/strategy", express.json({ limit: "32kb" }), (req, res) => {
+  try {
+    res.json(saveStrategy(req.body, process.env));
+  } catch (error) {
+    res.status(400).json({ error: "Invalid strategy", message: error.message });
+  }
+});
 
 // —— 静态资源：默认 public, max-age=0 + ETag，不设长缓存（前端文件无版本 hash） ——
 app.use(
