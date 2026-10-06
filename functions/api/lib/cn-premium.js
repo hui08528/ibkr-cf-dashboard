@@ -35,6 +35,7 @@ async function fetchTencentInfo(code) {
     iopv: numOrNull(p[78]),
     nav: numOrNull(p[81]),
     premiumRate: numOrNull(p[77]),
+    scale: numOrNull(p[44]), // 基金规模，单位：亿元
     navDate: "",
   };
 }
@@ -53,12 +54,13 @@ async function fetchSinaInfo(code) {
     iopv: null,
     nav: numOrNull(parts[1]),
     premiumRate: null,
+    scale: null,
     navDate: parts[4] || "",
   };
 }
 
 export async function fetchQdiiPremium(code, price) {
-  const EMPTY = { premiumRate: null, iopv: null, nav: null, navDate: "" };
+  const EMPTY = { premiumRate: null, iopv: null, nav: null, scale: null, navDate: "" };
   if (!price || price <= 0) return EMPTY;
 
   let info = navCache.get(code);
@@ -90,6 +92,7 @@ export async function fetchQdiiPremium(code, price) {
     premiumRate,
     iopv: info.iopv,
     nav: info.nav,
+    scale: info.scale ?? null,
     navDate: info.navDate || "",
   };
 }

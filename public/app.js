@@ -521,6 +521,8 @@ function renderQuoteCard(quote) {
   const premium = hasPremium ? number(quote.premiumRate) : null;
   const changeTip = `涨跌额：现价较昨日收盘价 ${quote.previousClose}，每份${up ? "上涨" : "下跌"} ${Math.abs(change).toFixed(2)}`;
 
+  const risk = hasPremium ? assessRisk(quote) : null;
+
   const premiumBlock = hasPremium
     ? `
       <div class="market-premium ${premiumLevelClass(premium)}${quote.premiumLowest ? " is-lowest" : ""}">
@@ -533,8 +535,24 @@ function renderQuoteCard(quote) {
       </div>`
     : "";
 
+  // 成交额 / 规模（仅 QDII）
+  const turnYi = quote.turnover ? quote.turnover / 1e8 : null;
+  const liqBlock = hasPremium
+    ? `
+      <div class="market-liq">
+        ${turnYi !== null
+          ? `<span class="change-tip" title="成交额：今日场内成交 ${turnYi.toFixed(2)} 亿元。高溢价时若成交清淡，卖出可能无人接盘，只能折价离场。">成交 ${turnYi.toFixed(2)}亿</span>`
+          : "成交 -"}
+        ${quote.scale ? ` · 规模 ${quote.scale.toFixed(0)}亿` : ""}
+      </div>`
+    : "";
+
+  const riskBanner = risk && risk.banner ? `<div class="risk-banner">${risk.text}</div>` : "";
+  const riskBadge = risk && !risk.banner ? `<div class="risk-badge risk-badge-${risk.level}">${risk.text}</div>` : "";
+
   return `
     <div class="market-item">
+      ${riskBanner}
       <div class="market-symbol">${escapeHtml(quote.displaySymbol || quote.symbol)}</div>
       <div class="market-name">${escapeHtml(quote.nameCn || quote.name || quote.symbol)}</div>
       <div class="market-subname">${escapeHtml(quote.name || "")}</div>
@@ -542,7 +560,9 @@ function renderQuoteCard(quote) {
       <div class="market-change ${available ? (up ? "up" : "down") : "market-unavailable"}">
         ${available ? `<span class="field-label">涨跌</span><span class="change-tip" title="${changeTip}">${up ? "+" : ""}${change.toFixed(2)}</span> (${up ? "+" : ""}${pct.toFixed(2)}%)` : marketErrorLabel(quote.error)}
       </div>
+      ${liqBlock}
       ${premiumBlock}
+      ${riskBadge}
     </div>
   `;
 }
@@ -555,6 +575,41 @@ function premiumLevelClass(rate) {
   if (a < 15) return "premium-warn";
   if (a < 30) return "premium-danger";
   return "premium-extreme";
+}
+
+// 动态风险阈值
+const RISK_CONFIG = {
+  LIQ_WEAK_TURNOVER_YI: 3, // 成交额 < 3亿 视为流动性弱
+  LIQ_WEAK_RATIO_PCT: 2.5, // 或 成交额/规模 < 2.5%
+  PREMIUM_HIGH: 15,
+  PREMIUM_EXTREME: 30,
+};
+
+// 溢价 × 流动性：区分“溢价回归（卖得掉）”与“流动性陷阱（卖不掉，最危险）”
+function assessRisk(quote) {
+  const rate = Number(quote.premiumRate);
+  if (!Number.isFinite(rate)) return null;
+
+  const turnYi = quote.turnover ? quote.turnover / 1e8 : null;
+  const ratioPct = turnYi !== null && quote.scale ? (turnYi / quote.scale) * 100 : null;
+  // 成交额缺失时不判流动性弱，避免误报
+  const liqWeak =
+    turnYi !== null &&
+    (turnYi < RISK_CONFIG.LIQ_WEAK_TURNOVER_YI || (ratioPct !== null && ratioPct < RISK_CONFIG.LIQ_WEAK_RATIO_PCT));
+
+  if (rate >= RISK_CONFIG.PREMIUM_HIGH && liqWeak) {
+    return { level: "danger", text: "高危：高溢价且成交清淡，难脱身", banner: true };
+  }
+  if (rate >= RISK_CONFIG.PREMIUM_EXTREME) {
+    return { level: "extreme", text: "溢价极端：回归风险大，流动性好可离场" };
+  }
+  if (rate >= RISK_CONFIG.PREMIUM_HIGH) {
+    return { level: "high", text: "高溢价：注意回归" };
+  }
+  if (liqWeak) {
+    return { level: "weak", text: "成交清淡：流动性偏弱" };
+  }
+  return null;
 }
 
 // 按 premiumGroup 分组：保持各组首次出现顺序；组内按溢价升序（无值排最后）；

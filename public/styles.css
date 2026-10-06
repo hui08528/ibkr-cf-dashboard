@@ -720,6 +720,37 @@ body {
   border-bottom: 1px dotted currentColor;
 }
 
+/* 成交额 / 规模 行 */
+.market-liq {
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--text-light);
+}
+
+/* 风险徽章（非高危时显示）*/
+.risk-badge {
+  margin-top: 8px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.risk-badge-extreme { background: rgba(190, 18, 60, 0.15); color: #be123c; }
+.risk-badge-high    { background: rgba(217, 119, 6, 0.13); color: #d97706; }
+.risk-badge-weak    { background: rgba(234, 179, 8, 0.16); color: #a16207; }
+.risk-badge-danger  { background: var(--down-bg); color: var(--down); }
+
+/* 高危红条：负 margin 贴合卡片顶部、左右通栏 */
+.risk-banner {
+  margin: -14px -14px 10px;
+  padding: 7px 12px;
+  background: #dc2626;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  border-radius: 7px 7px 0 0;
+}
+
 /* 场内 QDII 溢价率：正溢价=风险信号（红），折价=绿 */
 .market-premium {
   margin-top: 8px;
