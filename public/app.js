@@ -463,7 +463,10 @@ function renderInsightsTable() {
   tbody.innerHTML = rows.map((company) => {
     const item = popularEarningsBySymbol[company.symbol] || {};
     const reportDate = item.reportDate ? formatDateLabel(item.reportDate) : "暂无日期";
-    const fiscalDate = item.fiscalDateEnding ? formatDateLabel(item.fiscalDateEnding) : "-";
+    // 财报期：Finnhub 源给出财季文本（如 2025Q3），直接展示；无则回退 AV 的截止日
+    const fiscalDate = item.fiscalPeriod
+      ? escapeHtml(item.fiscalPeriod)
+      : (item.fiscalDateEnding ? formatDateLabel(item.fiscalDateEnding) : "-");
 
     return `
       <tr>

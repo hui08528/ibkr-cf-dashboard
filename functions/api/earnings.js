@@ -7,6 +7,7 @@
 import { createRequire } from "node:module";
 import { getSharedCalendarCtx } from "./lib/longbridge.js";
 import { isLongbridgeConfigured } from "./lib/longbridge.js";
+import { isFinnhubConfigured, fetchFinnhubEarnings } from "./lib/finnhub.js";
 
 const ALPHA_VANTAGE_URL = "https://www.alphavantage.co/query";
 const HORIZON_DAYS = 180; // 长桥查询窗口（财报确认日期通常在未来 1~2 个季度）
@@ -36,23 +37,25 @@ export async function onRequestGet({ env, request }) {
 
     const lbReady = isLongbridgeConfigured(env);
     const apiKey = env.ALPHA_VANTAGE_API_KEY;
-    if (!lbReady && !apiKey) {
+    const finnhubKey = isFinnhubConfigured(env) ? env.FINNHUB_API_KEY : "";
+    if (!lbReady && !apiKey && !finnhubKey) {
       return json(503, {
         error: "Earnings source is not configured",
-        message: "Set LONGBRIDGE_OAUTH_CLIENT_ID or ALPHA_VANTAGE_API_KEY.",
+        message: "Set LONGBRIDGE_OAUTH_CLIENT_ID, ALPHA_VANTAGE_API_KEY or FINNHUB_API_KEY.",
       });
     }
 
     const results = await getEarningsForSymbols(symbols, {
       lbReady,
       apiKey,
+      finnhubKey,
       forceRefresh,
       cacheTtlMs,
     });
 
     const sources = new Set(Object.values(results).map((row) => row.source));
     return json(200, {
-      source: sources.has("longbridge") ? "longbridge" : "alpha-vantage",
+      source: sources.has("finnhub") ? "finnhub" : sources.has("longbridge") ? "longbridge" : "alpha-vantage",
       updatedAt: new Date().toISOString(),
       earnings: results,
     });
@@ -64,7 +67,7 @@ export async function onRequestGet({ env, request }) {
   }
 }
 
-async function getEarningsForSymbols(symbols, { lbReady, apiKey, forceRefresh, cacheTtlMs }) {
+async function getEarningsForSymbols(symbols, { lbReady, apiKey, finnhubKey, forceRefresh, cacheTtlMs }) {
   const results = {};
   const missing = [];
 
@@ -79,24 +82,45 @@ async function getEarningsForSymbols(symbols, { lbReady, apiKey, forceRefresh, c
 
   if (missing.length === 0) return results;
 
-  // 1) 长桥：整窗口事件拉一次，按 symbol 匹配
+  // 0) Finnhub：美股标的优先（财报期 + 预估EPS + 预估营收）。
+  //    批量按月开窗、批内共享；未命中/异常不中断，归入 lbUnresolved 走长桥/AV。
   let lbUnresolved = missing;
+  if (finnhubKey) {
+    const usSymbols = missing.filter(isUsSymbol);
+    const nonUs = missing.filter((symbol) => !isUsSymbol(symbol));
+    try {
+      const found = await fetchFinnhubEarnings(usSymbols, finnhubKey);
+      for (const [symbol, value] of found) {
+        cachedBySymbol.set(symbol, { value, cachedAt: Date.now() });
+        results[symbol] = value;
+      }
+      lbUnresolved = [...nonUs, ...usSymbols.filter((symbol) => !found.has(symbol))];
+    } catch (error) {
+      console.warn(`[earnings] Finnhub 失败，回退长桥/AV: ${error.message}`);
+      lbUnresolved = missing;
+    }
+  }
+  if (lbUnresolved.length === 0) return results;
+
+  // 1) 长桥：整窗口事件拉一次，只处理 Finnhub 未命中的（lbUnresolved），
+  //    避免覆盖已由 Finnhub 命中（含财报期）的美股结果。
   if (lbReady) {
     const events = await getLongbridgeEvents(forceRefresh, cacheTtlMs).catch((error) => {
       console.warn(`[earnings] 长桥日历失败，回退 AV: ${error.message}`);
       return null;
     });
     if (events) {
-      lbUnresolved = [];
-      for (const symbol of missing) {
+      const stillUnresolved = [];
+      for (const symbol of lbUnresolved) {
         const value = findNextLbEvent(events, symbol);
         if (value) {
           cachedBySymbol.set(symbol, { value, cachedAt: Date.now() });
           results[symbol] = value;
         } else {
-          lbUnresolved.push(symbol); // 长桥窗口内没有 → 交给 AV
+          stillUnresolved.push(symbol); // 长桥窗口内没有 → 交给 AV
         }
       }
+      lbUnresolved = stillUnresolved;
     }
   }
 
@@ -270,6 +294,15 @@ function normalizeEarningsRow(row) {
 
 function normalizeSymbol(symbol) {
   return valueOf(symbol).toUpperCase().replace(/\./g, "-");
+}
+
+// 美股/非美股分流：明确非美后缀或纯数字（4-5 位，港股代码）视为非美股，其余字母开头算美股。
+// 注意 symbol 是 parseSymbols 原始输出，点号保留（BRK.B、0700.HK），传给 Finnhub 时同样用点号格式。
+function isUsSymbol(symbol) {
+  const s = valueOf(symbol).toUpperCase();
+  if (/\.(HK|CN|SG|JP)$/.test(s)) return false;
+  if (/^\d{4,5}$/.test(s)) return false;
+  return /^[A-Z][A-Z0-9.-]{0,9}$/.test(s);
 }
 
 function normalizeDate(value) {
