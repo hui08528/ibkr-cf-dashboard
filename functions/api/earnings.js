@@ -142,13 +142,22 @@ async function getLongbridgeEvents(forceRefresh, cacheTtlMs) {
 }
 
 function normalizeLbEvent(e) {
+  const kvByType = new Map((e.dataKv || []).map((kv) => [kv.valueType, kv]));
+  const pick = (type) => {
+    const kv = kvByType.get(type);
+    const value = valueOf(kv?.value);
+    return value && value !== "--" && value !== "TBA" ? value : "";
+  };
   return {
     symbol: normalizeLbSymbol(e.symbol),
     reportDate: normalizeDate(e.date),
     // 盘前/盘后：dateType 可能随节点地域返回 Pre/Post 或中文
     session: /pre|盘前/i.test(e.dateType) ? "pre" : /post|盘后/i.test(e.dateType) ? "post" : "",
     star: Number(e.star) || 0,
-    estimate: findEpsEstimate(e.dataKv),
+    estimate: pick("estimate_eps"),
+    estimateRevenue: pick("estimate_revenue"),
+    actualEps: pick("actual_eps"),
+    actualRevenue: pick("actual_revenue"),
     currency: valueOf(e.currency) || "USD",
   };
 }
@@ -157,16 +166,6 @@ function normalizeLbEvent(e) {
 function normalizeLbSymbol(value) {
   const raw = valueOf(value).toUpperCase().replace(/\.(US|HK|CN|SG|JP)$/i, "");
   return raw.replace(/\./g, "-");
-}
-
-// dataKv 里找预估 EPS（valueType 通常为 estimate_eps）
-function findEpsEstimate(dataKv) {
-  for (const kv of dataKv || []) {
-    if (/eps/i.test(kv.valueType || kv.key)) {
-      return valueOf(kv.value || kv.valueRaw);
-    }
-  }
-  return "";
 }
 
 function findNextLbEvent(events, symbol) {
@@ -199,7 +198,15 @@ function findNextEarnings(rows, symbol) {
     .sort((a, b) => parseDateValue(a.reportDate) - parseDateValue(b.reportDate))[0] || null;
 
   return next
-    ? { ...next, session: "", star: 0, source: "alpha-vantage" }
+    ? {
+        ...next,
+        session: "",
+        star: 0,
+        source: "alpha-vantage",
+        estimateRevenue: "",
+        actualEps: "",
+        actualRevenue: "",
+      }
     : emptyEarnings(symbol);
 }
 
@@ -213,6 +220,9 @@ function emptyEarnings(symbol) {
     session: "",
     star: 0,
     source: "none",
+    estimateRevenue: "",
+    actualEps: "",
+    actualRevenue: "",
   };
 }
 

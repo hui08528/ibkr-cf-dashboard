@@ -1417,6 +1417,18 @@ body {
   .leverage-marker { display: none; }
 }
 
+/* 财报营收实际标记 */
+.revenue-tag {
+  display: inline-block;
+  margin-left: 4px;
+  padding: 1px 6px;
+  border-radius: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  background: var(--up-bg);
+  color: var(--up);
+}
+
 /* 财报盘前/盘后 */
 .session-tag {
   display: inline-block;

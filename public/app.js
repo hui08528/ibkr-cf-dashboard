@@ -442,7 +442,7 @@ function renderInsightsTable() {
   if (!tbody) return;
 
   if (popularEarningsStatus === "loading") {
-    tbody.innerHTML = `<tr><td colspan="4" class="empty-cell">正在加载财报日历...</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="5" class="empty-cell">正在加载财报日历...</td></tr>`;
     return;
   }
 
@@ -474,6 +474,7 @@ function renderInsightsTable() {
         </td>
         <td>${reportDate} ${sessionLabel(item.session)}</td>
         <td>${fiscalDate}</td>
+        <td>${revenueCell(item)}</td>
       </tr>
     `;
   }).join("");
@@ -2189,6 +2190,15 @@ function uniqueEarningsSymbols(positionRows) {
 
 function normalizeEarningsSymbol(symbol) {
   return String(symbol || "").trim().toUpperCase().replace(/\./g, "-");
+}
+
+// 预估营收列：财报已发布则显示实际值（悬停看预估），否则显示预估
+function revenueCell(item) {
+  if (item.actualRevenue) {
+    const tip = item.estimateRevenue ? `预估营收 ${item.estimateRevenue}` : "";
+    return `<span${tip ? ` title="${escapeHtml(tip)}"` : ""}>${escapeHtml(item.actualRevenue)}</span><span class="revenue-tag">实际</span>`;
+  }
+  return item.estimateRevenue ? escapeHtml(item.estimateRevenue) : "—";
 }
 
 function sessionLabel(session) {
