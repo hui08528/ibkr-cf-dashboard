@@ -1417,6 +1417,20 @@ body {
   .leverage-marker { display: none; }
 }
 
+/* 财报盘前/盘后 */
+.session-tag {
+  display: inline-block;
+  margin-left: 4px;
+  padding: 1px 7px;
+  border-radius: 5px;
+  font-size: 11.5px;
+  font-weight: 600;
+  vertical-align: middle;
+}
+.session-pre { background: rgba(245, 158, 11, 0.15); color: #d97706; }
+.session-post { background: var(--up-bg); color: var(--up); }
+[data-theme="dark"] .session-pre { color: #fbbf24; }
+
 /* —— 实时行情 —— */
 .live-dot {
   display: inline-block;

@@ -1,6 +1,22 @@
+// 财报日历 —— 长桥 Calendar 主源，Alpha Vantage 兜底
+//
+// 长桥：无每日次数限制，带盘前/盘后（session）、重要性星级、预估 EPS。
+// AV：长桥未覆盖/不可用时按 symbol 补；免费 key 每天 25 次。
+// 缓存：单个 symbol 结果 + 长桥事件窗口，TTL 默认 24h（EARNINGS_CACHE_SECONDS）。
+
+import { createRequire } from "node:module";
+import { getSharedCalendarCtx } from "./lib/longbridge.js";
+import { isLongbridgeConfigured } from "./lib/longbridge.js";
+
 const ALPHA_VANTAGE_URL = "https://www.alphavantage.co/query";
+const HORIZON_DAYS = 180; // 长桥查询窗口（财报确认日期通常在未来 1~2 个季度）
+const LB_EVENT_CAP = 300; // 单次窗口事件上限（超出需分页，当前窗口足够）
+
+const require = createRequire(import.meta.url);
 
 let cachedBySymbol = new Map();
+let lbEvents = null; // 长桥原始事件（已归一）
+let lbEventsAt = 0;
 let cachedCalendar = null;
 let cachedCalendarAt = 0;
 
@@ -9,14 +25,6 @@ export async function onRequestGet({ env, request }) {
   const url = new URL(request.url);
 
   try {
-    const apiKey = env.ALPHA_VANTAGE_API_KEY;
-    if (!apiKey) {
-      return json(503, {
-        error: "Alpha Vantage is not configured",
-        message: "Set ALPHA_VANTAGE_API_KEY in Cloudflare environment variables.",
-      });
-    }
-
     const symbols = parseSymbols(url.searchParams.get("symbols"));
     const forceRefresh = url.searchParams.get("refresh") === "1";
     if (symbols.length === 0) {
@@ -26,10 +34,25 @@ export async function onRequestGet({ env, request }) {
       });
     }
 
-    const results = await getEarningsForSymbols(symbols, apiKey, forceRefresh, cacheTtlMs);
+    const lbReady = isLongbridgeConfigured(env);
+    const apiKey = env.ALPHA_VANTAGE_API_KEY;
+    if (!lbReady && !apiKey) {
+      return json(503, {
+        error: "Earnings source is not configured",
+        message: "Set LONGBRIDGE_OAUTH_CLIENT_ID or ALPHA_VANTAGE_API_KEY.",
+      });
+    }
 
+    const results = await getEarningsForSymbols(symbols, {
+      lbReady,
+      apiKey,
+      forceRefresh,
+      cacheTtlMs,
+    });
+
+    const sources = new Set(Object.values(results).map((row) => row.source));
     return json(200, {
-      source: "alpha-vantage",
+      source: sources.has("longbridge") ? "longbridge" : "alpha-vantage",
       updatedAt: new Date().toISOString(),
       earnings: results,
     });
@@ -41,7 +64,7 @@ export async function onRequestGet({ env, request }) {
   }
 }
 
-async function getEarningsForSymbols(symbols, apiKey, forceRefresh = false, cacheTtlMs = 0) {
+async function getEarningsForSymbols(symbols, { lbReady, apiKey, forceRefresh, cacheTtlMs }) {
   const results = {};
   const missing = [];
 
@@ -56,15 +79,106 @@ async function getEarningsForSymbols(symbols, apiKey, forceRefresh = false, cach
 
   if (missing.length === 0) return results;
 
-  const calendar = await getCalendar(apiKey, forceRefresh, cacheTtlMs);
-  for (const symbol of missing) {
-    const value = findNextEarnings(calendar, symbol);
-    cachedBySymbol.set(symbol, { value, cachedAt: Date.now() });
-    results[symbol] = value;
+  // 1) 长桥：整窗口事件拉一次，按 symbol 匹配
+  let lbUnresolved = missing;
+  if (lbReady) {
+    const events = await getLongbridgeEvents(forceRefresh, cacheTtlMs).catch((error) => {
+      console.warn(`[earnings] 长桥日历失败，回退 AV: ${error.message}`);
+      return null;
+    });
+    if (events) {
+      lbUnresolved = [];
+      for (const symbol of missing) {
+        const value = findNextLbEvent(events, symbol);
+        if (value) {
+          cachedBySymbol.set(symbol, { value, cachedAt: Date.now() });
+          results[symbol] = value;
+        } else {
+          lbUnresolved.push(symbol); // 长桥窗口内没有 → 交给 AV
+        }
+      }
+    }
+  }
+
+  // 2) Alpha Vantage 兜底
+  if (lbUnresolved.length && apiKey) {
+    const calendar = await getCalendar(apiKey, forceRefresh, cacheTtlMs);
+    for (const symbol of lbUnresolved) {
+      const value = findNextEarnings(calendar, symbol);
+      cachedBySymbol.set(symbol, { value, cachedAt: Date.now() });
+      results[symbol] = value;
+    }
+  } else {
+    for (const symbol of lbUnresolved) {
+      results[symbol] = emptyEarnings(symbol);
+    }
   }
 
   return results;
 }
+
+// —— 长桥 ——
+
+async function getLongbridgeEvents(forceRefresh, cacheTtlMs) {
+  if (!forceRefresh && lbEvents && Date.now() - lbEventsAt < cacheTtlMs) return lbEvents;
+
+  const calCtx = await getSharedCalendarCtx();
+  if (!calCtx) throw new Error("长桥 CalendarContext 不可用");
+  const lb = require("longbridge");
+
+  const start = isoDate(new Date());
+  const end = isoDate(addDays(new Date(), HORIZON_DAYS));
+  const res = await calCtx.financeCalendar(
+    lb.CalendarCategory.Report,
+    start,
+    end,
+    null, // 不限市场
+    LB_EVENT_CAP
+  );
+
+  lbEvents = res.list.flatMap((day) => day.infos.map(normalizeLbEvent));
+  lbEventsAt = Date.now();
+  return lbEvents;
+}
+
+function normalizeLbEvent(e) {
+  return {
+    symbol: normalizeLbSymbol(e.symbol),
+    reportDate: normalizeDate(e.date),
+    // 盘前/盘后：dateType 可能随节点地域返回 Pre/Post 或中文
+    session: /pre|盘前/i.test(e.dateType) ? "pre" : /post|盘后/i.test(e.dateType) ? "post" : "",
+    star: Number(e.star) || 0,
+    estimate: findEpsEstimate(e.dataKv),
+    currency: valueOf(e.currency) || "USD",
+  };
+}
+
+// AAPL.US→AAPL；BRK.B.US→BRK-B；700.HK→700
+function normalizeLbSymbol(value) {
+  const raw = valueOf(value).toUpperCase().replace(/\.(US|HK|CN|SG|JP)$/i, "");
+  return raw.replace(/\./g, "-");
+}
+
+// dataKv 里找预估 EPS（valueType 通常为 estimate_eps）
+function findEpsEstimate(dataKv) {
+  for (const kv of dataKv || []) {
+    if (/eps/i.test(kv.valueType || kv.key)) {
+      return valueOf(kv.value || kv.valueRaw);
+    }
+  }
+  return "";
+}
+
+function findNextLbEvent(events, symbol) {
+  const target = normalizeSymbol(symbol);
+  const next = events
+    .filter((row) => row.symbol === target)
+    .filter((row) => row.reportDate && parseDateValue(row.reportDate) >= startOfToday())
+    .sort((a, b) => parseDateValue(a.reportDate) - parseDateValue(b.reportDate))[0];
+  return next ? { symbol, fiscalDateEnding: "", ...next, source: "longbridge" } : null;
+}
+
+// —— Alpha Vantage（兜底）——
 
 async function getCalendar(apiKey, forceRefresh, cacheTtlMs) {
   if (!forceRefresh && cachedCalendar && Date.now() - cachedCalendarAt < cacheTtlMs) {
@@ -84,7 +198,22 @@ function findNextEarnings(rows, symbol) {
     .filter((row) => row.reportDate && parseDateValue(row.reportDate) >= startOfToday())
     .sort((a, b) => parseDateValue(a.reportDate) - parseDateValue(b.reportDate))[0] || null;
 
-  return next || { symbol, reportDate: "", fiscalDateEnding: "", estimate: "", currency: "USD" };
+  return next
+    ? { ...next, session: "", star: 0, source: "alpha-vantage" }
+    : emptyEarnings(symbol);
+}
+
+function emptyEarnings(symbol) {
+  return {
+    symbol,
+    reportDate: "",
+    fiscalDateEnding: "",
+    estimate: "",
+    currency: "USD",
+    session: "",
+    star: 0,
+    source: "none",
+  };
 }
 
 async function fetchAlphaVantageEarnings(apiKey) {
@@ -135,7 +264,7 @@ function normalizeSymbol(symbol) {
 
 function normalizeDate(value) {
   if (!value || /^(none|null|n\/a)$/i.test(value)) return "";
-  const match = value.match(/(\d{4})[-\/]?(\d{2})[-\/]?(\d{2})/);
+  const match = value.match(/(\d{4})[./-]?(\d{2})[./-]?(\d{2})/);
   return match ? `${match[1]}-${match[2]}-${match[3]}` : "";
 }
 
@@ -147,7 +276,7 @@ function parseDateValue(value) {
 function parseCsv(text) {
   const lines = text.trim().split(/\r?\n/);
   if (lines.length < 2) return [];
-  const headers = splitCsvLine(lines[0]).map((header) => header.replace(/^\uFEFF/, ""));
+  const headers = splitCsvLine(lines[0]).map((header) => header.replace(/^﻿/, ""));
   return lines.slice(1).map((line) => {
     const values = splitCsvLine(line);
     return headers.reduce((row, header, index) => {
@@ -165,10 +294,10 @@ function splitCsvLine(line) {
   for (let index = 0; index < line.length; index += 1) {
     const char = line[index];
     const next = line[index + 1];
-    if (char === "\"" && quoted && next === "\"") {
-      current += "\"";
+    if (char === '"' && quoted && next === '"') {
+      current += '"';
       index += 1;
-    } else if (char === "\"") {
+    } else if (char === '"') {
       quoted = !quoted;
     } else if (char === "," && !quoted) {
       values.push(current.trim());
@@ -188,6 +317,16 @@ function parseSymbols(value) {
     .map((symbol) => symbol.trim().toUpperCase())
     .filter((symbol) => /^[A-Z][A-Z0-9.-]{0,9}$/.test(symbol))
     .slice(0, 30))];
+}
+
+function isoDate(date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function addDays(date, days) {
+  const copy = new Date(date);
+  copy.setUTCDate(copy.getUTCDate() + days);
+  return copy;
 }
 
 function startOfToday() {

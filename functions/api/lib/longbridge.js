@@ -154,34 +154,7 @@ async function getCtx() {
   if (!lb) return null;
 
   try {
-    sanitizeEnv();
-    let config = null;
-
-    const clientId = env("LONGBRIDGE_OAUTH_CLIENT_ID");
-    if (clientId) {
-      restoreTokenCache(clientId);
-      if (isValidTokenCache(clientId)) {
-        const oauth = await lb.OAuth.build(clientId, (_err, url) => {
-          // 无头运行不启动交互授权：抛错让上层降级到 Alpha Vantage
-          throw new Error(
-            "Longbridge OAuth token 已失效，无头环境无法授权；请重新运行 scripts/generate_longbridge_oauth_token.py"
-          );
-        });
-        config = lb.Config.fromOAuth(oauth);
-      } else {
-        console.warn(`[longbridge] OAuth client 已配置但 token 缓存缺失或非法: ${tokenCachePath(clientId)}`);
-      }
-    }
-
-    if (!config) {
-      const appKey = env("LONGBRIDGE_APP_KEY");
-      const appSecret = env("LONGBRIDGE_APP_SECRET");
-      const accessToken = env("LONGBRIDGE_ACCESS_TOKEN");
-      if (appKey && appSecret && accessToken) {
-        config = lb.Config.fromApikey(appKey, appSecret, accessToken);
-      }
-    }
-
+    const config = await buildConfig(lb);
     if (!config) {
       _cooldownUntil = Date.now() + 30000; // 30s 内不重试，避免刷日志
       return null;
@@ -195,9 +168,45 @@ async function getCtx() {
   }
 }
 
+// 构建 SDK Config（OAuth 优先，兼容 API Key）；Quote/Calendar 上下文共用
+async function buildConfig(lb) {
+  sanitizeEnv();
+  const clientId = env("LONGBRIDGE_OAUTH_CLIENT_ID");
+  if (clientId) {
+    restoreTokenCache(clientId);
+    if (isValidTokenCache(clientId)) {
+      const oauth = await lb.OAuth.build(clientId, () => {
+        // 无头运行不启动交互授权：抛错让上层降级
+        throw new Error(
+          "Longbridge OAuth token 已失效，无头环境无法授权；请重新运行 scripts/generate_longbridge_oauth_token.py"
+        );
+      });
+      return lb.Config.fromOAuth(oauth);
+    }
+    console.warn(`[longbridge] OAuth client 已配置但 token 缓存缺失或非法: ${tokenCachePath(clientId)}`);
+  }
+
+  const appKey = env("LONGBRIDGE_APP_KEY");
+  const appSecret = env("LONGBRIDGE_APP_SECRET");
+  const accessToken = env("LONGBRIDGE_ACCESS_TOKEN");
+  if (appKey && appSecret && accessToken) {
+    return lb.Config.fromApikey(appKey, appSecret, accessToken);
+  }
+  return null;
+}
+
 // WS 订阅复用同一个 QuoteContext 单例
 export async function getSharedCtx() {
   return getCtx();
+}
+
+// 财报日历 CalendarContext（每次按需创建，轻量无状态）
+export async function getSharedCalendarCtx() {
+  if (!isLongbridgeConfigured()) return null;
+  const lb = getLb();
+  if (!lb) return null;
+  const config = await buildConfig(lb);
+  return config ? lb.CalendarContext.new(config) : null;
 }
 
 function num(value) {

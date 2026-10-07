@@ -472,7 +472,7 @@ function renderInsightsTable() {
           <div class="company-name">${escapeHtml(company.nameCn)}</div>
           <div class="company-subname">${escapeHtml(company.name)}</div>
         </td>
-        <td>${reportDate}</td>
+        <td>${reportDate} ${sessionLabel(item.session)}</td>
         <td>${fiscalDate}</td>
       </tr>
     `;
@@ -2191,6 +2191,12 @@ function normalizeEarningsSymbol(symbol) {
   return String(symbol || "").trim().toUpperCase().replace(/\./g, "-");
 }
 
+function sessionLabel(session) {
+  if (session === "pre") return `<span class="session-tag session-pre" title="美股开盘前发布">盘前</span>`;
+  if (session === "post") return `<span class="session-tag session-post" title="美股收盘后发布">盘后</span>`;
+  return "";
+}
+
 function earningsCell(position) {
   if (position.type === "cash") return "-";
   if (earningsStatus === "loading") return "加载中";
@@ -2200,7 +2206,7 @@ function earningsCell(position) {
   const item = earningsBySymbol[symbol] || earningsBySymbol[position.symbol];
   if (!item?.reportDate) return "-";
 
-  return formatDateLabel(item.reportDate);
+  return `${formatDateLabel(item.reportDate)} ${sessionLabel(item.session)}`;
 }
 
 function formatDateLabel(dateText) {
