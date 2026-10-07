@@ -77,9 +77,13 @@ const cnQdiiCandidates = ["159509", "159941", "513100", "159659", "513300"];
 const PARAM_FIELDS = [
   { key: "drawdownNormal", label: "常规调整 %" },
   { key: "drawdownBear", label: "熊市 %" },
+  { key: "drawdownLeverage", label: "回调启用融资 %" },
   { key: "premiumCheap", label: "溢价便宜 %" },
   { key: "premiumFair", label: "溢价合理 %" },
   { key: "premiumExpensive", label: "溢价昂贵 %" },
+  { key: "topPremium", label: "顶部溢价 %" },
+  { key: "rallyDays", label: "加速观察天" },
+  { key: "rallyDailyGain", label: "加速日均涨 %" },
   { key: "leverageWarn", label: "杠杆警示" },
   { key: "leverageDanger", label: "杠杆危险" },
   { key: "fgExtremeFear", label: "极端恐惧" },
@@ -1097,6 +1101,7 @@ const RB_TYPE_LABEL = {
   add: "加仓",
   leverage: "杠杆",
   switch: "切换",
+  margin: "融资",
   opportunity: "机会",
   trim: "止盈",
   risk: "风险",
@@ -1146,6 +1151,15 @@ function renderRbSignals(d) {
   if (s.leverage.available) {
     const tone = s.leverage.leverage >= 3 ? "danger" : s.leverage.leverage >= 2.5 ? "warn" : "ok";
     chips.push(rbChip(`综合杠杆 ${s.leverage.leverage}x`, tone));
+  }
+  if (s.margin?.available) {
+    chips.push(rbChip(`回调 ${s.margin.dd}%${s.margin.ready ? " 可融资" : ""}`, s.margin.ready ? "warn" : "ok"));
+  }
+  if (s.recovery?.available) {
+    chips.push(rbChip(`熊市低位可切 ${s.recovery.target} 修复`, s.recovery.eligible ? "warn" : "ok"));
+  }
+  if (s.top?.available) {
+    chips.push(rbChip(`顶部信号`, s.top.triggered ? "danger" : "ok"));
   }
   if (s.cash.available) {
     chips.push(

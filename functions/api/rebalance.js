@@ -119,13 +119,19 @@ export async function onRequestGet({ env }) {
 
   // —— 信号 ——
   const points = benchmark?.benchmark?.points || [];
+  const drawdown = buildDrawdown(points, strategy.params);
+  const trend = buildTrend(points, strategy.params);
+  const leverage = buildLeverage(holdings, ibkrCash, nav);
   const signals = {
-    drawdown: buildDrawdown(points, strategy.params),
-    trend: buildTrend(points, strategy.params),
+    drawdown,
+    trend,
     fearGreed: buildFearGreedSignal(fearGreed, strategy.params),
     premium: buildPremiumSignals(cnQuotes),
-    leverage: buildLeverage(holdings, ibkrCash, nav),
+    leverage,
     cash: buildCash(ibkrCash, okx),
+    margin: buildMarginSignal(drawdown, leverage, strategy.params),
+    recovery: buildRecoverySwitch(holdings, drawdown, trend, strategy.params),
+    top: buildTopSignal(points, cnQuotes, strategy.params),
   };
 
   const actions = buildActions(sleeves, signals, strategy.params, holdings);
@@ -245,6 +251,66 @@ function buildCash(ibkrCash, okx) {
   };
 }
 
+// 回调≥7% 启用融资信号（PDF 回撤篇）：指数自峰值回撤超阈值、未演变成系统性危机、
+// 且当前杠杆偏低有加杠杆空间时 ready。定性部分（"利空变量不可持续"）留给行动文案提示。
+const MARGIN_HEADROOM_MAX = 1.5; // 启用融资前提：综合杠杆低于该值（避免高位加杠杆）
+export function buildMarginSignal(drawdown, leverage, params) {
+  if (!drawdown.available) return { available: false };
+  const dd = drawdown.dd;
+  const lev = Number(leverage?.leverage) || 0;
+  const ready =
+    dd <= params.drawdownLeverage && // 回调已超阈值（回撤 ≥7%）
+    dd > params.drawdownBear && // 尚未演变成系统性危机
+    lev < MARGIN_HEADROOM_MAX; // 当前杠杆低，有加杠杆空间
+  return { available: true, ready, dd: round2(dd), leverage: round2(lev) };
+}
+
+// 熊市低位切换杠杆 ETF 收益修复（PDF 回撤篇）：熊市（深度回撤）或熊转牛拐点
+// （回调超阈值后趋势转上）时，把持有的 QQQ/QQQM 切换为 QLD/TQQQ，利用杠杆ETF
+// 在修复阶段超额上涨抵消先前回撤损失。需已持有非杠杆纳指ETF 且未持有杠杆ETF。
+export function buildRecoverySwitch(holdings, drawdown, trend, params) {
+  if (!drawdown.available) return { available: false };
+  const qqq = holdings.filter((row) => row.source === "ibkr" && (row.symbol === "QQQ" || row.symbol === "QQQM"));
+  if (!qqq.length) return { available: false, eligible: false };
+  const hasLeverageEtf = holdings.some((row) => row.source === "ibkr" && ["QLD", "TQQQ"].includes(row.symbol));
+  const dd = drawdown.dd;
+  const deepBear = dd <= params.drawdownBear; // 熊市/系统性危机
+  const turning = dd <= params.drawdownLeverage && trend?.direction === "up"; // 大幅回调后趋势转上（熊转牛拐点）
+  const eligible = (deepBear || turning) && !hasLeverageEtf;
+  const target = dd <= -30 ? "TQQQ" : "QLD"; // 极端回撤用3x，一般熊市用2x
+  const amount = qqq.reduce((sum, row) => sum + Number(row.marketValue || 0), 0);
+  return { available: true, eligible, dd: round2(dd), deepBear, turning, target, amount: round2(amount) };
+}
+
+// 顶部信号（PDF 顶部底部信号体系·可选条件）：场内纳指100 溢价≥8%，或指数
+// 加速上涨（近 N 日日均涨幅 ≥1%）。两个可量化因子任一命中即触发；"叙事疯狂"等
+// 定性因子暂不量化。
+export function buildTopSignal(points, cnQuotes, params) {
+  const factors = [];
+  let fastRally = false;
+  if (points.length >= params.rallyDays + 1) {
+    const window = points.slice(-(params.rallyDays + 1));
+    let total = 0;
+    for (let i = 1; i < window.length; i++) {
+      const prev = Number(window[i - 1].close);
+      const cur = Number(window[i].close);
+      if (prev > 0) total += (cur / prev - 1) * 100;
+    }
+    const avgDaily = total / params.rallyDays;
+    if (avgDaily >= params.rallyDailyGain) {
+      fastRally = true;
+      factors.push(`近${params.rallyDays}日日均涨幅 ${avgDaily.toFixed(1)}%`);
+    }
+  }
+  let topPremium = null;
+  const ndx = (cnQuotes || []).filter((q) => q.premiumGroup === "NDX" && Number.isFinite(Number(q.premiumRate)));
+  if (ndx.length) {
+    topPremium = Math.max(...ndx.map((q) => Number(q.premiumRate)));
+    if (topPremium >= params.topPremium) factors.push(`场内纳指100溢价 ${topPremium.toFixed(1)}%`);
+  }
+  return { available: true, triggered: factors.length > 0, fastRally, topPremium, factors };
+}
+
 // —— 行动清单 ——
 
 function buildActions(sleeves, signals, params, holdings) {
@@ -295,6 +361,19 @@ function buildActions(sleeves, signals, params, holdings) {
     }
   }
 
+  // 熊市低位切换杠杆 ETF 做收益修复（PDF：熊市或熊转牛拐点，把 QQQ 切换为 QLD/TQQQ）
+  const recovery = signals.recovery;
+  if (recovery.available && recovery.eligible && recovery.amount > 0) {
+    const targetLabel = recovery.target === "TQQQ" ? "TQQQ（3x）" : "QLD（2x）";
+    push(
+      68,
+      "switch",
+      `熊市低位：QQQ 切换 ${recovery.target} 做收益修复`,
+      `指数回撤 ${recovery.dd}%，将 QQQ/QQQM（约 \$${formatK(recovery.amount)}）切换为 ${targetLabel}，利用杠杆ETF修复回撤；须能扛 20% 回撤、资金 2 年内不动`,
+      recovery.amount
+    );
+  }
+
   // 同类 QDII 溢价切换：标的溢价昂贵且组内有明显更低者
   for (const row of signals.premium) {
     if (heldManual.has(row.symbol) && row.premiumRate > params.premiumFair && row.premiumRate - row.groupMin >= 3) {
@@ -307,6 +386,17 @@ function buildActions(sleeves, signals, params, holdings) {
     }
   }
 
+  // 回调≥7% 且利空不可持续 → 可启用融资（PDF 回撤篇：指数回调超 7% 后适当启用融资）
+  const margin = signals.margin;
+  if (margin.available && margin.ready) {
+    push(
+      52,
+      "margin",
+      `回调 ${margin.dd}%：可启用融资分批加仓`,
+      `指数自峰值回撤已超阈值，当前综合杠杆 ${margin.leverage}x、尚未到危险区。若判断利空变量不可持续，可启用融资（利率<6%、期限≥2年、能扛20%回撤）逐步加仓`
+    );
+  }
+
   // 恐慌贪婪 + 现金
   const fg = signals.fearGreed;
   const cash = signals.cash;
@@ -316,6 +406,17 @@ function buildActions(sleeves, signals, params, holdings) {
     } else if (fg.zone === "xgreed" && sleeves.some((sleeve) => sleeve.status === "over")) {
       push(45, "trim", "极度贪婪且有超配桶", "考虑止盈");
     }
+  }
+
+  // 顶部信号：场内溢价≥8% / 加速上涨日均≥1%（PDF 顶部底部信号体系）
+  const top = signals.top;
+  if (top.available && top.triggered && holdings.length > 0) {
+    push(
+      42,
+      "trim",
+      "顶部信号：考虑分批止盈/降杠杆",
+      `触发：${top.factors.join("、")}。若持仓已有盈利或杠杆偏高，考虑分批止盈、降低杠杆，避免高位追入`
+    );
   }
 
   // 回撤级别提示

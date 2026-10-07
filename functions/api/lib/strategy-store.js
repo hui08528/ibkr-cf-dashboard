@@ -21,9 +21,13 @@ export const DEFAULT_STRATEGY = {
   params: {
     drawdownNormal: -10, // 常规调整阈值（%）
     drawdownBear: -20, // 熊市/系统性危机阈值（%）
+    drawdownLeverage: -7, // 回调≥7% 且利空不可持续 → 可启用融资（纳指框架·回撤篇）
     premiumCheap: 2, // QDII 溢价便宜线（%）
     premiumFair: 5, // 溢价合理线（%）
     premiumExpensive: 20, // 溢价昂贵线（%）
+    topPremium: 8, // 顶部信号：场内纳指100 溢价线（%）
+    rallyDays: 5, // 顶部信号：加速上涨观察天数
+    rallyDailyGain: 1, // 顶部信号：近 N 日日均涨幅线（%）
     leverageWarn: 2.5, // 杠杆警示倍数
     leverageDanger: 3, // 杠杆危险倍数
     fgExtremeFear: 25, // 恐慌贪婪极端恐惧线
@@ -85,9 +89,13 @@ export function validateStrategy(strategy) {
   const thresholdFields = [
     "drawdownNormal",
     "drawdownBear",
+    "drawdownLeverage",
     "premiumCheap",
     "premiumFair",
     "premiumExpensive",
+    "topPremium",
+    "rallyDays",
+    "rallyDailyGain",
     "leverageWarn",
     "leverageDanger",
     "fgExtremeFear",

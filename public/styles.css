@@ -1534,6 +1534,8 @@ body {
 .rb-action-risk .rb-action-tag { background: var(--down-bg); border-color: transparent; color: var(--down); }
 .rb-action-add .rb-action-tag,
 .rb-action-opportunity .rb-action-tag { background: var(--up-bg); border-color: transparent; color: var(--up); }
+.rb-action-switch .rb-action-tag,
+.rb-action-margin .rb-action-tag { background: rgba(59, 130, 246, 0.15); border-color: transparent; color: #3b82f6; }
 .rb-action-trim .rb-action-tag { background: rgba(245, 158, 11, 0.15); border-color: transparent; color: #d97706; }
 .rb-action-title { font-weight: 600; }
 .rb-action-detail { color: var(--text-muted); font-size: 13px; margin-top: 2px; }
