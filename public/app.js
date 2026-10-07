@@ -66,6 +66,11 @@ let rebalanceStatus = "idle";
 let strategyDraft = null;
 let rbSleeveChart = null;
 
+// 实时行情流（长桥 WS → SSE）
+const streamQuotes = new Map(); // symbol -> 最新 quote
+let streamState = "idle"; // idle | connecting | live | error
+let eventSource = null;
+
 // 手动持仓代码候选（与 market.js cnInstruments 对应，允许自由输入）
 const cnQdiiCandidates = ["159509", "159941", "513100", "159659", "513300"];
 
@@ -133,6 +138,7 @@ async function init() {
   wireControls();
   wireFrameworkTopics();
   wireRebalanceEditor();
+  wireStream();
   applyPortfolio(demoData, "正在连接 IBKR...");
 
   try {
@@ -575,15 +581,26 @@ function renderQuoteCard(quote) {
   const riskBanner = risk && risk.banner ? `<div class="risk-banner">${risk.text}</div>` : "";
   const riskBadge = risk && !risk.banner ? `<div class="risk-badge risk-badge-${risk.level}">${risk.text}</div>` : "";
 
+  // 实时流价格优先（含非 live 的快照价播种）
+  const streamQ = streamQuotes.get(quote.symbol);
+  const live = livePriceFor(quote.symbol);
+  const effPrice = streamQ?.price || quote.price;
+  const effPrev = streamQ?.previousClose || quote.previousClose;
+  const effChange = effPrev ? effPrice - effPrev : change;
+  const effPct = effPrev ? (effChange / effPrev) * 100 : pct;
+  const effUp = effChange >= 0;
+  const effAvailable = streamQ?.price ? true : available;
+  const sym = quote.symbol;
+
   return `
     <div class="market-item">
       ${riskBanner}
-      <div class="market-symbol">${escapeHtml(quote.displaySymbol || quote.symbol)}</div>
-      <div class="market-name">${escapeHtml(quote.nameCn || quote.name || quote.symbol)}</div>
+      <div class="market-symbol">${escapeHtml(quote.displaySymbol || sym)}</div>
+      <div class="market-name">${escapeHtml(quote.nameCn || quote.name || sym)}</div>
       <div class="market-subname">${escapeHtml(quote.name || "")}</div>
-      <div class="market-price"><span class="field-label">现价</span>${available ? formatPlainPrice(quote.price) : "暂无数据"}</div>
-      <div class="market-change ${available ? (up ? "up" : "down") : "market-unavailable"}">
-        ${available ? `<span class="field-label">涨跌</span><span class="change-tip" title="${changeTip}">${up ? "+" : ""}${change.toFixed(2)}</span> (${up ? "+" : ""}${pct.toFixed(2)}%)` : marketErrorLabel(quote.error)}
+      <div class="market-price"><span class="field-label">现价</span><span class="live-dot" data-live-dot="${sym}" data-on="${live ? "1" : "0"}"></span>${effAvailable ? `<span data-live-price="${sym}">${formatPlainPrice(effPrice)}</span>` : "暂无数据"}</div>
+      <div class="market-change ${effAvailable ? (effUp ? "up" : "down") : "market-unavailable"}" data-live-class="${sym}">
+        ${effAvailable ? `<span class="field-label">涨跌</span><span class="change-tip" title="${changeTip}" data-live-change="${sym}">${effUp ? "+" : ""}${effChange.toFixed(2)} (${effUp ? "+" : ""}${effPct.toFixed(2)}%)</span>` : marketErrorLabel(quote.error)}
       </div>
       ${liqBlock}
       ${premiumBlock}
@@ -905,6 +922,92 @@ async function loadRebalance() {
   renderRebalance();
 }
 
+// —— 实时行情流 ——
+
+function wireStream() {
+  if (eventSource) return;
+  streamState = "connecting";
+  updateStreamIndicator();
+  eventSource = new EventSource("/api/stream");
+
+  eventSource.addEventListener("snapshot", (e) => {
+    const d = JSON.parse(e.data);
+    streamQuotes.clear();
+    for (const [symbol, q] of Object.entries(d.quotes || {})) streamQuotes.set(symbol, q);
+    streamState = d.status === "live" ? "live" : "connecting";
+    updateStreamIndicator();
+    // 用快照价重绘当前可见卡片（REST 尚未返回时也有价格）
+    if (document.getElementById("section-insights").classList.contains("active")) renderMarketSnapshot();
+    if (document.getElementById("section-rebalance").classList.contains("active")) renderRebalance();
+  });
+
+  eventSource.addEventListener("quote", (e) => {
+    const q = JSON.parse(e.data);
+    streamQuotes.set(q.symbol, q);
+    streamState = "live";
+    updateStreamIndicator();
+    patchLiveQuote(q.symbol);
+  });
+
+  eventSource.addEventListener("error", () => {
+    // EventSource 会自动重连；仅更新指示
+    streamState = "error";
+    updateStreamIndicator();
+  });
+}
+
+function updateStreamIndicator() {
+  const wrap = document.getElementById("stream-indicator");
+  const text = document.getElementById("stream-indicator-text");
+  if (!wrap || !text) return;
+  const map = {
+    idle: ["", ""],
+    connecting: ["连接中…", "is-connecting"],
+    live: ["实时行情已连接", "is-live"],
+    error: ["实时连接断开，重连中…", "is-error"],
+  };
+  const [label, cls] = map[streamState];
+  if (!label) {
+    wrap.hidden = true;
+    return;
+  }
+  wrap.hidden = false;
+  text.textContent = label;
+  wrap.className = `stream-indicator ${cls}`;
+}
+
+// 实时价优先于 REST 快照价
+function livePriceFor(symbol) {
+  const q = streamQuotes.get(symbol);
+  return q && q.live && q.price ? q : null;
+}
+
+// 按 symbol 直接 patch 已渲染的 DOM 节点，避免整卡重绘
+function patchLiveQuote(symbol) {
+  const q = streamQuotes.get(symbol);
+  if (!q || q.price === null) return;
+
+  const priceEl = document.querySelector(`[data-live-price="${symbol}"]`);
+  if (priceEl) priceEl.textContent = formatPlainPrice(q.price);
+
+  const changeEl = document.querySelector(`[data-live-change="${symbol}"]`);
+  const classEl = document.querySelector(`[data-live-class="${symbol}"]`);
+  if (changeEl && q.previousClose) {
+    const change = q.price - q.previousClose;
+    const pct = (change / q.previousClose) * 100;
+    const up = change >= 0;
+    changeEl.textContent = `${up ? "+" : ""}${change.toFixed(2)} (${up ? "+" : ""}${pct.toFixed(2)}%)`;
+    classEl?.classList.toggle("up", up);
+    classEl?.classList.toggle("down", !up);
+  }
+
+  // 调仓持仓表（仅美股 USD 价行，手动 CNY 行不 patch）
+  const rbPrice = document.querySelector(`[data-rb-price="${symbol}"]`);
+  if (rbPrice) rbPrice.textContent = formatCurrency(q.price);
+
+  document.querySelectorAll(`[data-live-dot="${symbol}"]`).forEach((dot) => (dot.dataset.on = "1"));
+}
+
 function setRbCell(id, html) {
   const element = document.getElementById(id);
   if (element) element.innerHTML = html;
@@ -1071,7 +1174,7 @@ function renderRbHoldings(d) {
           <td><div class="company-name">${escapeHtml(row.name)}</div></td>
           <td><span class="rb-badge rb-badge-source">${sourceLabel[row.source] || row.source}</span></td>
           <td class="num">${formatNumber(row.qty)}</td>
-          <td class="num">${formatCurrency(row.price)}</td>
+          <td class="num"${row.source !== "manual" ? ` data-rb-price="${row.symbol}"` : ""}>${formatCurrency(row.price)}</td>
           <td class="num">${formatCurrency(row.marketValue)}</td>
           <td>${escapeHtml(sleeveName.get(row.bucket) || row.bucket)}</td>
         </tr>`

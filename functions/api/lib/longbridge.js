@@ -195,6 +195,11 @@ async function getCtx() {
   }
 }
 
+// WS 订阅复用同一个 QuoteContext 单例
+export async function getSharedCtx() {
+  return getCtx();
+}
+
 function num(value) {
   if (value === null || value === undefined) return null;
   if (typeof value === "number") return Number.isFinite(value) ? value : null;

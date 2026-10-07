@@ -9,6 +9,7 @@ import { onRequestGet as benchmarkHandler } from "./functions/api/benchmark.js";
 import { onRequestGet as fearGreedHandler } from "./functions/api/fear-greed.js";
 import { onRequestGet as rebalanceHandler } from "./functions/api/rebalance.js";
 import { loadStrategy, saveStrategy } from "./functions/api/lib/strategy-store.js";
+import { ensureStarted, addSubscriber, snapshotEvent } from "./functions/api/lib/quote-stream.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -48,6 +49,34 @@ app.get("/api/market", toExpress(marketHandler));
 app.get("/api/benchmark", toExpress(benchmarkHandler));
 app.get("/api/fear-greed", toExpress(fearGreedHandler));
 app.get("/api/rebalance", toExpress(rebalanceHandler));
+
+// 实时行情 SSE：长桥 WS → 浏览器 EventSource
+app.get("/api/stream", async (req, res) => {
+  res.set({
+    "Content-Type": "text/event-stream; charset=utf-8",
+    "Cache-Control": "no-cache",
+    Connection: "keep-alive",
+    "X-Accel-Buffering": "no", // 防 nginx 缓冲事件
+  });
+  res.flushHeaders?.();
+
+  const send = (event) => res.write(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
+
+  try {
+    await ensureStarted(process.env);
+  } catch (error) {
+    send({ type: "error", message: error.message });
+  }
+
+  send(snapshotEvent());
+  const unsubscribe = addSubscriber(send);
+
+  const heartbeat = setInterval(() => res.write(": heartbeat\n\n"), 25000);
+  req.on("close", () => {
+    clearInterval(heartbeat);
+    unsubscribe();
+  });
+});
 app.get("/api/strategy", (_req, res) => res.json(loadStrategy(process.env)));
 app.put("/api/strategy", express.json({ limit: "32kb" }), (req, res) => {
   try {

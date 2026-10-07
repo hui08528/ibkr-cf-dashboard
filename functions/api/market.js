@@ -9,7 +9,7 @@ let cachedSource = null;
 let cachedAt = 0;
 
 // 美股核心 ETF 与指数
-const usInstruments = [
+export const usInstruments = [
   // NDXTMC：纳指100 科技板块市值加权指数
   { symbol: "NDXTMC", name: "NASDAQ 100 Technology Sector Market-Cap Index", nameCn: "纳指100科技市值加权指数", longbridgeSymbol: ".NDXTMC.US" },
   // NDX 是指数不是证券，长桥代码需前置点号：.NDX.US
@@ -21,7 +21,7 @@ const usInstruments = [
 ];
 
 // 场内 QDII（追踪同一批海外指数的国内 ETF）
-const cnInstruments = [
+export const cnInstruments = [
   // 159509.SZ：景顺长城纳斯达克科技 ETF，追踪 NDXTMC
   { symbol: "159509", displaySymbol: "159509.SZ", name: "Invesco Great Wall Nasdaq-100 Technology Sector Market-Cap Weighted ETF (QDII)", nameCn: "景顺长城纳斯达克科技ETF(QDII)", longbridgeSymbol: "159509.SZ", premiumGroup: "NDXTMC" },
   // 以下均追踪纳斯达克100（NDX）

@@ -1417,6 +1417,48 @@ body {
   .leverage-marker { display: none; }
 }
 
+/* —— 实时行情 —— */
+.live-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin: 0 5px;
+  border-radius: 50%;
+  background: var(--text-light);
+  vertical-align: middle;
+}
+.live-dot[data-on="1"] {
+  background: var(--up);
+  animation: live-pulse 1.6s ease-in-out infinite;
+}
+@keyframes live-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+.stream-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 11px;
+  border-radius: 20px;
+  font-size: 12.5px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+.stream-indicator-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-light);
+}
+.stream-indicator.is-live .stream-indicator-dot {
+  background: var(--up);
+  animation: live-pulse 1.6s ease-in-out infinite;
+}
+.stream-indicator.is-connecting .stream-indicator-dot { background: #d97706; }
+.stream-indicator.is-error .stream-indicator-dot { background: var(--down); }
+
 /* —— 调仓模型 —— */
 .stat-num.pnl-warn { color: #d97706; }
 [data-theme="dark"] .stat-num.pnl-warn { color: #fbbf24; }
