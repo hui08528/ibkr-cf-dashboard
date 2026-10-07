@@ -56,7 +56,8 @@ export async function onRequestGet({ env }) {
     }
 
     // avCalls 在两组建共享：限制 Alpha Vantage 免费额度（调用间至少间隔 1.2s）
-    const state = { lbConfigured, apiKey, avCalls: 0 };
+    // lbSkipUntil：连接级超时后短时间内跳过长桥（同一连接，一个超时其余也会超时）
+    const state = { lbConfigured, apiKey, avCalls: 0, lbSkipUntil: 0 };
     const quotes = await loadGroup(usInstruments, state);
     const cnQuotes = await loadGroup(cnInstruments, state, true);
 
@@ -93,21 +94,39 @@ async function loadGroup(instruments, state, qdii = false) {
 }
 
 // 长桥主源 → Alpha Vantage 兜底；qdii 标的补溢价率（现价 ÷ 最新单位净值）
-async function loadQuote(instrument, { lbConfigured, apiKey, avCalls }, qdii = false) {
+async function loadQuote(instrument, state, qdii = false) {
+  const { lbConfigured, apiKey, avCalls } = state;
   if (lbConfigured) {
-    const lbQuote = await fetchLongbridgeQuote(instrument.symbol, instrument);
-    if (lbQuote.available) {
-      if (qdii) {
-        const prem = await fetchQdiiPremium(instrument.symbol, lbQuote.price).catch(() => ({
-          premiumRate: null,
-          nav: null,
-          navDate: "",
-        }));
-        return { ...lbQuote, ...prem };
+    // 本批次连接已超时：直接跳过长桥，有 AV key 则落到下方兜底，避免每个标的各等一轮超时
+    if (state.lbSkipUntil <= Date.now()) {
+      const lbQuote = await fetchLongbridgeQuote(instrument.symbol, instrument);
+      if (lbQuote.timeout) state.lbSkipUntil = Date.now() + 30_000;
+      if (lbQuote.available) {
+        if (qdii) {
+          const prem = await fetchQdiiPremium(instrument.symbol, lbQuote.price).catch(() => ({
+            premiumRate: null,
+            nav: null,
+            navDate: "",
+          }));
+          return { ...lbQuote, ...prem };
+        }
+        return lbQuote;
       }
-      return lbQuote;
+      if (!apiKey) return lbQuote; // 无 AV key：保留长桥的错误信息
+    } else if (!apiKey) {
+      return {
+        ...instrument,
+        displaySymbol: instrument.displaySymbol || instrument.symbol,
+        price: null,
+        previousClose: null,
+        change: null,
+        changePercent: null,
+        tradingDay: "",
+        source: "longbridge",
+        available: false,
+        error: "长桥连接暂不可用（超时冷却中）",
+      };
     }
-    if (!apiKey) return lbQuote; // 无 AV key：保留长桥的错误信息
   }
 
   if (apiKey) {

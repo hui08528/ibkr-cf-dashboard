@@ -154,9 +154,18 @@ export async function onRequestGet({ env }) {
   });
 }
 
+// 子调用超时兜底：容错只 catch 报错，不处理"永不返回"。任一数据源挂起时按缺失
+// 处理（返回 null），避免拖死整个 /api/rebalance。冷启动 IBKR 可能 10s+，给到 15s。
+const SUB_CALL_TIMEOUT_MS = 15_000;
 async function callJson(handler, env) {
   try {
-    const response = await handler({ env, request: { url: "http://localhost/" } });
+    let timer;
+    const response = await Promise.race([
+      handler({ env, request: { url: "http://localhost/" } }),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error("sub-call timeout")), SUB_CALL_TIMEOUT_MS);
+      }),
+    ]).finally(() => clearTimeout(timer));
     return await response.json();
   } catch {
     return null;

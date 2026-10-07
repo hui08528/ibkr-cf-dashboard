@@ -137,6 +137,27 @@ function isConnectionError(error) {
   return CONNECTION_ERRORS.some((s) => msg.includes(s));
 }
 
+// 给长桥原生（NAPI-RS）异步调用加超时。连接"假死"时原生 Promise 可能永久 pending
+// （TCP 在但服务端不回包，静默断线不报错），try/catch 抓不到，必须用 Promise.race
+// 兜底，否则一个标的挂起会经 /api/market 拖死整个 /api/rebalance。
+function withTimeout(promise, ms, label) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      const error = new Error(`${label} 超时 ${Math.round(ms / 1000)}s`);
+      error.lbTimeout = true;
+      reject(error);
+    }, ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
+// 读 env 中的超时配置（毫秒），非法/未设则用默认值
+function timeoutMs(envKey, fallback) {
+  const v = Number(env(envKey));
+  return Number.isFinite(v) && v > 0 ? v : fallback;
+}
+
 function markCooldown(error) {
   _ctx = null;
   const sec = Number(env("LONGBRIDGE_CONNECTION_COOLDOWN_SECONDS")) || 15;
@@ -242,19 +263,23 @@ async function fetchCalcIndex(ctx, symbol) {
   };
   if (!lb) return out;
   try {
-    const rows = await ctx.calcIndexes(
-      [symbol],
-      [
-        lb.CalcIndex.ChangeRate,
-        lb.CalcIndex.TurnoverRate,
-        lb.CalcIndex.Amplitude,
-        lb.CalcIndex.VolumeRatio,
-        lb.CalcIndex.PeTtmRatio,
-        lb.CalcIndex.PbRatio,
-        lb.CalcIndex.DividendRatioTtm,
-        lb.CalcIndex.YtdChangeRate,
-        lb.CalcIndex.TotalMarketValue,
-      ]
+    const rows = await withTimeout(
+      ctx.calcIndexes(
+        [symbol],
+        [
+          lb.CalcIndex.ChangeRate,
+          lb.CalcIndex.TurnoverRate,
+          lb.CalcIndex.Amplitude,
+          lb.CalcIndex.VolumeRatio,
+          lb.CalcIndex.PeTtmRatio,
+          lb.CalcIndex.PbRatio,
+          lb.CalcIndex.DividendRatioTtm,
+          lb.CalcIndex.YtdChangeRate,
+          lb.CalcIndex.TotalMarketValue,
+        ]
+      ),
+      timeoutMs("LONGBRIDGE_CALC_TIMEOUT_MS", 5000),
+      "长桥指标"
     );
     const row = rows && rows[0];
     if (row) {
@@ -307,7 +332,11 @@ export async function fetchQuote(code, meta = {}) {
   if (!symbol) return { ...base, error: `无法转换代码 ${code}` };
 
   try {
-    const quotes = await ctx.quote([symbol]);
+    const quotes = await withTimeout(
+      ctx.quote([symbol]),
+      timeoutMs("LONGBRIDGE_QUOTE_TIMEOUT_MS", 8000),
+      "长桥行情"
+    );
     const q = quotes && quotes[0];
     if (!q) return { ...base, error: "长桥无该标的行情" };
 
@@ -328,7 +357,11 @@ export async function fetchQuote(code, meta = {}) {
     let name = meta.name || "";
     let nameCn = meta.nameCn || "";
     try {
-      const infos = await ctx.staticInfo([symbol]);
+      const infos = await withTimeout(
+        ctx.staticInfo([symbol]),
+        timeoutMs("LONGBRIDGE_STATIC_TIMEOUT_MS", 5000),
+        "长桥资料"
+      );
       const info = infos && infos[0];
       if (info) {
         name = info.nameEn || name;
@@ -366,8 +399,10 @@ export async function fetchQuote(code, meta = {}) {
       error: "",
     };
   } catch (error) {
-    if (isConnectionError(error)) markCooldown(error);
-    return { ...base, error: error.message };
+    // 超时只让本次失败、交由上层降级 AV：连接可能正在 SDK 内部自动重连，销毁 _ctx
+    // 会破坏 quote-stream 仍持有的订阅。仅明确不可恢复的连接错误才进入冷却重建。
+    if (!error.lbTimeout && isConnectionError(error)) markCooldown(error);
+    return { ...base, error: error.message, timeout: Boolean(error.lbTimeout) };
   }
 }
 
@@ -379,7 +414,11 @@ export async function fetchDailyCandlesticks(code, count = 750) {
   const lb = getLb();
   if (!symbol || !lb) return null;
   try {
-    const bars = await ctx.candlesticks(symbol, lb.Period.Day, count, lb.AdjustType.ForwardAdjust, lb.TradeSessions.Intraday);
+    const bars = await withTimeout(
+      ctx.candlesticks(symbol, lb.Period.Day, count, lb.AdjustType.ForwardAdjust, lb.TradeSessions.Intraday),
+      timeoutMs("LONGBRIDGE_CANDLE_TIMEOUT_MS", 10000),
+      "长桥日K"
+    );
     if (!bars || !bars.length) return null;
     return bars
       .map((bar) => ({
