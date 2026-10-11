@@ -138,7 +138,9 @@ const popularCompanies = [
 const savedTheme = localStorage.getItem("theme");
 if (savedTheme) document.documentElement.setAttribute("data-theme", savedTheme);
 
-init();
+// 注意：init() 不能在这里调用——它会立即用到文件后部定义的 const（如
+// ALERT_DIRECTIONS），脚本此时尚未执行到那些声明，提前调用会触发 TDZ
+// ReferenceError，导致 wireAlerts 及后续初始化全部中断。统一在文件末尾启动。
 
 async function init() {
   wireNavigation();
@@ -2572,3 +2574,6 @@ function escapeHtml(value) {
     "'": "&#39;",
   }[char]));
 }
+
+// 所有 const/函数声明就位后再启动（init 内部会用到本文件后部定义的常量）
+init();
