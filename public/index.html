@@ -31,6 +31,9 @@
       <a href="#rebalance" class="nav-item" data-target="rebalance">
         <span class="nav-icon">⚖️</span> 调仓模型
       </a>
+      <a href="#alerts" class="nav-item" data-target="alerts">
+        <span class="nav-icon">🔔</span> 告警
+      </a>
       <a href="#framework" class="nav-item" data-target="framework">
         <span class="nav-icon">🧭</span> 投资框架
       </a>
@@ -605,6 +608,79 @@
               <p>页面和 API 会返回你的真实持仓数据。建议在 nginx 开启 Basic Auth（<code>htpasswd</code>），零前端改动即可整站保护。详见 <code>DEPLOY.md</code>。</p>
             </div>
           </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Alerts Section -->
+    <section id="section-alerts" class="section">
+      <div class="stats-row" id="alerts-context">
+        <div class="stat-box"><div class="stat-title">告警规则</div><div class="stat-num" id="alerts-count">0</div></div>
+        <div class="stat-box"><div class="stat-title">启用中</div><div class="stat-num" id="alerts-enabled">0</div></div>
+        <div class="stat-box"><div class="stat-title">推送渠道</div><div class="stat-num" id="alerts-channel">钉钉</div></div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <h3>新增 / 编辑规则</h3>
+          <span class="data-status" id="alerts-form-status"></span>
+        </div>
+        <div class="alert-form">
+          <input type="hidden" id="alert-id" />
+          <div class="alert-form-row">
+            <select id="alert-kind" class="select">
+              <option value="premium_cross">QDII 溢价率</option>
+              <option value="price_cross">价格穿越</option>
+              <option value="price_change_percent">涨跌幅</option>
+            </select>
+            <input type="text" id="alert-symbol" class="input" list="alert-symbols" placeholder="标的代码，如 513100 / QQQ" />
+            <select id="alert-direction" class="select"></select>
+            <input type="number" id="alert-value" class="input" placeholder="阈值" step="any" />
+            <input type="text" id="alert-name" class="input" placeholder="规则名（可选）" />
+            <select id="alert-severity" class="select">
+              <option value="warning">⚠️ warning</option>
+              <option value="info">🔔 info</option>
+              <option value="critical">🚨 critical</option>
+            </select>
+            <input type="number" id="alert-cooldown" class="input" placeholder="冷却(秒)" value="3600" min="0" />
+            <button class="btn btn-primary" id="alert-save-btn" type="button">保存</button>
+            <button class="btn btn-outline" id="alert-cancel-btn" type="button" hidden>取消</button>
+          </div>
+          <datalist id="alert-symbols">
+            <option value="513100"></option>
+            <option value="159941"></option>
+            <option value="513300"></option>
+            <option value="159659"></option>
+            <option value="QQQ"></option>
+            <option value="VOO"></option>
+            <option value="SMH"></option>
+            <option value="NDX"></option>
+          </datalist>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <h3>规则列表</h3>
+          <span class="data-status" id="alerts-status"></span>
+        </div>
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>规则</th>
+                <th>标的</th>
+                <th>类型</th>
+                <th>阈值</th>
+                <th>级别</th>
+                <th class="num">冷却(s)</th>
+                <th>状态</th>
+                <th>最近触发</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody id="alerts-tbody"></tbody>
+          </table>
         </div>
       </div>
     </section>

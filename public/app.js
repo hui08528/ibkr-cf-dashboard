@@ -65,6 +65,8 @@ let rebalanceData = null;
 let rebalanceStatus = "idle";
 let strategyDraft = null;
 let rbSleeveChart = null;
+let alertsData = [];
+let alertsStatus = "idle"; // idle | loading | ready | unavailable
 
 // 实时行情流（长桥 WS → SSE）
 const streamQuotes = new Map(); // symbol -> 最新 quote
@@ -111,6 +113,7 @@ const titles = {
   analytics: "收益分析",
   insights: "市场洞察",
   rebalance: "调仓模型",
+  alerts: "告警监控",
   framework: "投资框架",
   guide: "部署指南",
 };
@@ -142,6 +145,7 @@ async function init() {
   wireControls();
   wireFrameworkTopics();
   wireRebalanceEditor();
+  wireAlerts();
   wireStream();
   applyPortfolio(demoData, "正在连接 IBKR...");
 
@@ -907,6 +911,9 @@ function showSection(name) {
     renderRebalance();
     if (rebalanceStatus === "idle" || rebalanceStatus === "unavailable") loadRebalance();
   }
+  if (target === "alerts") {
+    if (alertsStatus === "idle" || alertsStatus === "unavailable") loadAlerts();
+  }
 }
 
 // —— 调仓模型 ——
@@ -928,6 +935,268 @@ async function loadRebalance() {
     rebalanceStatus = "unavailable";
   }
   renderRebalance();
+}
+
+// —— 告警监控 ——
+
+const ALERT_KIND_LABELS = {
+  premium_cross: "QDII 溢价率",
+  price_cross: "价格穿越",
+  price_change_percent: "涨跌幅",
+};
+
+const ALERT_DIRECTIONS = {
+  premium_cross: [
+    { value: "above", label: "上穿 ≥" },
+    { value: "below", label: "跌破 ≤" },
+  ],
+  price_cross: [
+    { value: "above", label: "上穿 ≥" },
+    { value: "below", label: "跌破 ≤" },
+  ],
+  price_change_percent: [
+    { value: "up", label: "上涨 ≥" },
+    { value: "down", label: "下跌 ≥" },
+  ],
+};
+
+function alertValueField(kind) {
+  return kind === "premium_cross" ? "value" : kind === "price_cross" ? "price" : "changePct";
+}
+
+function wireAlerts() {
+  const kindSelect = document.getElementById("alert-kind");
+  const directionSelect = document.getElementById("alert-direction");
+  const valueInput = document.getElementById("alert-value");
+  const saveBtn = document.getElementById("alert-save-btn");
+  const cancelBtn = document.getElementById("alert-cancel-btn");
+  const symbolInput = document.getElementById("alert-symbol");
+
+  const refreshDirections = () => {
+    const kind = kindSelect.value;
+    directionSelect.innerHTML = "";
+    for (const option of ALERT_DIRECTIONS[kind] || []) {
+      const el = document.createElement("option");
+      el.value = option.value;
+      el.textContent = option.label;
+      directionSelect.appendChild(el);
+    }
+    const field = alertValueField(kind);
+    valueInput.placeholder = field === "price" ? "价格阈值" : field === "value" ? "溢价阈值 %" : "涨跌幅 %";
+    valueInput.title = field === "price" ? "价格阈值（如 2.5）" : field === "value" ? "溢价率阈值（如 20）" : "涨跌幅阈值（如 5）";
+  };
+
+  kindSelect?.addEventListener("change", refreshDirections);
+  saveBtn?.addEventListener("click", saveAlert);
+  cancelBtn?.addEventListener("click", resetAlertForm);
+  symbolInput?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      saveBtn?.click();
+    }
+  });
+  refreshDirections();
+}
+
+function resetAlertForm() {
+  document.getElementById("alert-id").value = "";
+  document.getElementById("alert-symbol").value = "";
+  document.getElementById("alert-name").value = "";
+  document.getElementById("alert-value").value = "";
+  document.getElementById("alert-severity").value = "warning";
+  document.getElementById("alert-cooldown").value = "3600";
+  document.getElementById("alert-cancel-btn").hidden = true;
+  const status = document.getElementById("alerts-form-status");
+  if (status) status.textContent = "";
+}
+
+function editAlert(id) {
+  const rule = alertsData.find((item) => item.id === id);
+  if (!rule) return;
+  document.getElementById("alert-id").value = rule.id;
+  document.getElementById("alert-kind").value = rule.kind;
+  document.getElementById("alert-kind").dispatchEvent(new Event("change"));
+  document.getElementById("alert-symbol").value = rule.symbol;
+  document.getElementById("alert-direction").value = rule.params.direction;
+  const field = alertValueField(rule.kind);
+  document.getElementById("alert-value").value = rule.params[field] ?? "";
+  document.getElementById("alert-name").value = rule.name || "";
+  document.getElementById("alert-severity").value = rule.severity || "warning";
+  document.getElementById("alert-cooldown").value = rule.cooldownSeconds ?? 3600;
+  document.getElementById("alert-cancel-btn").hidden = false;
+  const status = document.getElementById("alerts-form-status");
+  if (status) status.textContent = "编辑中：保存即更新该规则";
+}
+
+async function saveAlert() {
+  const status = document.getElementById("alerts-form-status");
+  const kind = document.getElementById("alert-kind").value;
+  const field = alertValueField(kind);
+  const payload = {
+    kind,
+    symbol: document.getElementById("alert-symbol").value.trim(),
+    params: {
+      direction: document.getElementById("alert-direction").value,
+      [field]: Number(document.getElementById("alert-value").value),
+    },
+    name: document.getElementById("alert-name").value.trim(),
+    severity: document.getElementById("alert-severity").value,
+    cooldownSeconds: Number(document.getElementById("alert-cooldown").value) || 3600,
+  };
+  const id = document.getElementById("alert-id").value;
+  const method = id ? "PUT" : "POST";
+  const url = id ? `/api/alerts/${encodeURIComponent(id)}` : "/api/alerts";
+  try {
+    const response = await fetch(url, {
+      method,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(body.message || body.error || `HTTP ${response.status}`);
+    if (status) status.textContent = id ? "已更新" : "已创建";
+    resetAlertForm();
+    await loadAlerts();
+  } catch (error) {
+    if (status) status.textContent = `保存失败：${error.message}`;
+    console.warn(error);
+  }
+}
+
+async function deleteAlert(id) {
+  const rule = alertsData.find((item) => item.id === id);
+  if (!rule) return;
+  if (!window.confirm(`删除规则「${rule.name || rule.symbol}」？`)) return;
+  const status = document.getElementById("alerts-status");
+  try {
+    const response = await fetch(`/api/alerts/${encodeURIComponent(id)}`, { method: "DELETE" });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    await loadAlerts();
+  } catch (error) {
+    if (status) status.textContent = `删除失败：${error.message}`;
+    console.warn(error);
+  }
+}
+
+async function testAlert(id) {
+  const status = document.getElementById("alerts-status");
+  if (status) status.textContent = "测试推送中...";
+  try {
+    const response = await fetch(`/api/alerts/${encodeURIComponent(id)}/test`, { method: "POST" });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(body.message || `HTTP ${response.status}`);
+    if (status) {
+      status.textContent = body.sent?.ok ? "测试推送成功 ✅" : `测试推送失败：${(body.sent?.errors || []).join(", ") || "未知错误"}`;
+    }
+  } catch (error) {
+    if (status) status.textContent = `测试失败：${error.message}`;
+    console.warn(error);
+  }
+}
+
+async function toggleAlert(id) {
+  const rule = alertsData.find((item) => item.id === id);
+  if (!rule) return;
+  try {
+    const response = await fetch(`/api/alerts/${encodeURIComponent(id)}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled: !rule.enabled }),
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    await loadAlerts();
+  } catch (error) {
+    const status = document.getElementById("alerts-status");
+    if (status) status.textContent = `切换失败：${error.message}`;
+    console.warn(error);
+  }
+}
+
+async function loadAlerts() {
+  alertsStatus = "loading";
+  renderAlerts();
+  try {
+    const response = await fetch("/api/alerts", { headers: { Accept: "application/json" } });
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      throw new Error(body.message || `Alerts API failed with ${response.status}`);
+    }
+    const body = await response.json();
+    alertsData = Array.isArray(body.alerts) ? body.alerts : [];
+    alertsStatus = "ready";
+  } catch (error) {
+    console.warn(error);
+    alertsData = [];
+    alertsStatus = "unavailable";
+  }
+  renderAlerts();
+}
+
+function formatTriggerTime(value) {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return escapeHtml(value);
+  return date.toLocaleString("zh-CN", { hour12: false, timeZone: "Asia/Shanghai" });
+}
+
+function renderAlerts() {
+  const statusEl = document.getElementById("alerts-status");
+  const tbody = document.getElementById("alerts-tbody");
+  const countEl = document.getElementById("alerts-count");
+  const enabledEl = document.getElementById("alerts-enabled");
+
+  if (countEl) countEl.textContent = String(alertsData.length);
+  if (enabledEl) enabledEl.textContent = String(alertsData.filter((rule) => rule.enabled).length);
+
+  if (alertsStatus === "loading") {
+    if (statusEl) statusEl.textContent = "正在加载...";
+  } else if (alertsStatus === "unavailable") {
+    if (statusEl) statusEl.textContent = "告警接口不可用";
+  } else if (alertsStatus === "ready") {
+    if (statusEl) statusEl.textContent = alertsData.length ? "已加载" : "暂无规则，先在上面新增一条";
+  }
+
+  if (!tbody) return;
+  tbody.innerHTML = "";
+  for (const rule of alertsData) {
+    const field = alertValueField(rule.kind);
+    const threshold = rule.params?.[field];
+    const thresholdText =
+      threshold === undefined || threshold === null || threshold === "" ? "—" : String(threshold) + (rule.kind === "premium_cross" ? "%" : "");
+    const directionLabel =
+      (ALERT_DIRECTIONS[rule.kind] || []).find((option) => option.value === rule.params.direction)?.label || rule.params.direction;
+    const tr = document.createElement("tr");
+    if (!rule.enabled) tr.classList.add("alert-badge-off");
+    tr.innerHTML = `
+      <td>${escapeHtml(rule.name || rule.symbol)}</td>
+      <td>${escapeHtml(rule.symbol)}</td>
+      <td><span class="alert-kind-tag">${escapeHtml(ALERT_KIND_LABELS[rule.kind] || rule.kind)}</span></td>
+      <td>${escapeHtml(directionLabel)} ${escapeHtml(thresholdText)}</td>
+      <td>${escapeHtml(rule.severity)}</td>
+      <td class="num">${escapeHtml(String(rule.cooldownSeconds ?? "-"))}</td>
+      <td>${rule.enabled ? '<span style="color:var(--success, #22c55e)">启用</span>' : '<span style="color:var(--text-muted)">停用</span>'}</td>
+      <td>${formatTriggerTime(rule.lastTriggeredAt)}</td>
+      <td>
+        <div class="row-actions">
+          <button class="btn btn-outline" data-alert-action="toggle" data-id="${escapeHtml(rule.id)}">${rule.enabled ? "停用" : "启用"}</button>
+          <button class="btn btn-outline" data-alert-action="edit" data-id="${escapeHtml(rule.id)}">编辑</button>
+          <button class="btn btn-outline" data-alert-action="test" data-id="${escapeHtml(rule.id)}">测试</button>
+          <button class="btn btn-outline" data-alert-action="delete" data-id="${escapeHtml(rule.id)}">删除</button>
+        </div>
+      </td>
+    `;
+    tbody.appendChild(tr);
+  }
+  tbody.querySelectorAll("[data-alert-action]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const action = button.dataset.alertAction;
+      const id = button.dataset.id;
+      if (action === "toggle") toggleAlert(id);
+      else if (action === "edit") editAlert(id);
+      else if (action === "test") testAlert(id);
+      else if (action === "delete") deleteAlert(id);
+    });
+  });
 }
 
 // —— 实时行情流 ——

@@ -142,6 +142,12 @@ export function addSubscriber(fn) {
   return () => subscribers.delete(fn);
 }
 
+// 供告警引擎等内部消费者取最新一条实时行情（浅拷贝，避免外部篡改内存态）
+export function getLatest(symbol) {
+  const row = latest.get(symbol);
+  return row ? { ...row } : null;
+}
+
 export function snapshotEvent() {
   return {
     type: "snapshot",

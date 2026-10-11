@@ -168,15 +168,60 @@ certbot --nginx -d 你的域名
 
 ---
 
+## 五、钉钉告警推送（可选，随服务自动启动）
+
+进程内后台轮询（默认 45s），评估告警规则，触发后推送到钉钉群机器人。规则通过页面「告警」区块或 REST API 管理，持久化在 `/data/alerts.json`（compose 挂卷，容器重建不丢）。
+
+**1. 创建钉钉机器人**（免费、无需审核）：
+
+1. 打开钉钉 → 建一个群（哪怕只有自己的群）
+2. 群设置 → **智能群助手** → **添加机器人** → **自定义**
+3. 复制 Webhook 地址 → 填入 `.env` 的 `DINGTALK_WEBHOOK_URL`
+4. 安全设置选 **「加签」**，复制 secret → 填入 `DINGTALK_SECRET`
+
+**2. 环境变量**（`.env` 已含默认值，通常无需改）：
+
+| 变量 | 默认 | 说明 |
+| --- | --- | --- |
+| `DINGTALK_WEBHOOK_URL` | 空 | 群机器人 Webhook；留空则只评估不推送 |
+| `DINGTALK_SECRET` | 空 | 加签密钥（安全设置里选「加签」才有） |
+| `ALERT_ENABLED` | `true` | 告警调度总开关 |
+| `ALERT_INTERVAL_SECONDS` | `45` | 评估间隔（15-3600 秒） |
+| `ALERT_FILE` | `/data/alerts.json` | 规则持久化路径 |
+| `ALERT_DEFAULT_COOLDOWN_SECONDS` | `3600` | 单规则默认冷却秒数 |
+| `ALERT_TRADING_HOURS_ONLY` | `false` | 设 `true` 则仅 A 股交易时段评估（北京时间 9:30-11:30 / 13:00-15:00） |
+
+**3. 规则类型**（页面表单或 REST）：
+
+- `premium_cross`：QDII 溢价率上穿/跌破阈值（如 513100 溢价 > 20%）
+- `price_cross`：价格上穿/跌破阈值
+- `price_change_percent`：涨跌幅 ≥ 阈值
+
+```bash
+# 示例：513100 溢价上穿 5% 时推钉钉（当前溢价 > 20% 时也会触发，阈值按需调）
+curl -u dashboard:密码 -X POST https://你的域名/api/alerts \
+  -H "Content-Type: application/json" \
+  -d '{"name":"513100 溢价>5%","kind":"premium_cross","symbol":"513100",\
+       "params":{"direction":"above","value":5},"severity":"warning","cooldownSeconds":3600}'
+
+# 立即测试推送
+curl -u dashboard:密码 -X POST https://你的域名/api/alerts/<id>/test
+```
+
+数据来源说明：价格优先走长桥 WS 实时价（服务启动即订阅，无需打开页面）；溢价率生产走 `CN_PREMIUM_API_URL` 国内云函数（东京 VPS 不直连腾讯/新浪），未配置时才本地直连兜底。
+
+---
+
 ## 验证清单
 
 ```bash
 curl -u dashboard:密码 https://你的域名/api/portfolio     # 真实持仓 JSON
 curl -u dashboard:密码 https://你的域名/api/market        # QQQ 行情
+curl -u dashboard:密码 https://你的域名/api/alerts        # 告警规则列表
 curl -u dashboard:密码 https://你的域名/healthz           # {"ok":true}（不要求凭据）
 curl -I https://你的域名/app.js                          # Cache-Control 无 immutable
 ```
-浏览器访问 `https://你的域名/`：弹一次登录框后全站可用，图表与数据正常。
+浏览器访问 `https://你的域名/`：弹一次登录框后全站可用，图表与数据正常。左侧导航「告警」区块可新建/启停/测试/删除规则。
 
 > 老访客如果之前用过旧版（immutable 缓存），需硬刷新一次（`Ctrl+Shift+R`），之后不再复发。
 

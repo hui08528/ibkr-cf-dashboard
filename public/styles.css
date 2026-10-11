@@ -1378,6 +1378,39 @@ body {
 
 .input { width: 160px; }
 
+/* —— 告警管理 —— */
+.alert-form {
+  padding: 16px;
+}
+.alert-form-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.alert-form-row .input,
+.alert-form-row .select {
+  flex: 0 1 auto;
+  min-width: 110px;
+}
+#alert-symbol { min-width: 150px; }
+.alert-kind-tag {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+.alert-badge-off { opacity: 0.55; }
+.row-actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.row-actions .btn { padding: 4px 10px; font-size: 12px; }
+
 /* Footer */
 .footer {
   text-align: center;
