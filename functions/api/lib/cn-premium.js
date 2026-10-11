@@ -1,28 +1,60 @@
-// 场内 QDII · A股 溢价率
-// 溢价率 =（现价 − IOPV 实时参考净值）÷ IOPV × 100%
-//
-// 主源：腾讯 qt.gtimg.cn —— 一次返回 [77]官方溢价率、[78]IOPV、[81]单位净值
-//   用 IOPV 做分母比用 T-1 单位净值更贴近盘中；腾讯溢价率直接采用，避免自算误差。
-// 补日期：新浪基金 f_<code> [4]=净值日期（腾讯没有日期）。
-// 腾讯不可用时回退新浪单位净值 + 自算溢价（旧逻辑兜底）。
-//
-// 接口 GBK 编码，用 TextDecoder('gbk') 解码；QDII 美股闭市时 IOPV 冻结、盘中不跳动，
-// 溢价仍含净值滞后成分，前端需展示净值日期 + IOPV 标注。
-// 净值/IOPV 一天才更新一次，进程内缓存 1 小时，避免高频请求。
+// 场内 QDII · A 股溢价率。
+// 生产环境优先从国内云函数读取腾讯/新浪数据，避免东京 VPS 直连国内行情源。
+// 未配置 CN_PREMIUM_API_URL 时，才使用本地/开发环境的腾讯 + 新浪直连兜底。
 
 const GBK = new TextDecoder("gbk");
-
-const navCache = new Map(); // code -> { iopv, nav, premiumRate, navDate, expiresAt }
+const navCache = new Map();
 const NAV_CACHE_TTL_MS = 3600 * 1000;
+const runtimeEnv = globalThis.process?.env || {};
 
-// 仅 Node + 配置了 CN_HTTP_PROXY 时启用：海外 VPS 让国内行情接口走回国代理。
-// dispatcher 是 undici（Node 内置 fetch 的底层）专有选项，不影响 Cloudflare 等其他运行时。
+const REMOTE_PREMIUM_URL = String(runtimeEnv.CN_PREMIUM_API_URL || "").trim();
+const REMOTE_PREMIUM_TOKEN = String(runtimeEnv.CN_PREMIUM_API_TOKEN || "").trim();
+
+function numOrNull(value) {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+function emptyInfo() {
+  return { premiumRate: null, iopv: null, nav: null, scale: null, navDate: "" };
+}
+
+async function fetchRemoteInfo(code) {
+  if (!REMOTE_PREMIUM_URL || !REMOTE_PREMIUM_TOKEN) {
+    throw new Error("CN premium remote source is not configured");
+  }
+
+  const url = new URL(REMOTE_PREMIUM_URL);
+  url.searchParams.set("codes", code);
+
+  const response = await fetch(url, {
+    headers: {
+      Accept: "application/json",
+      "x-api-token": REMOTE_PREMIUM_TOKEN,
+    },
+  });
+
+  if (!response.ok) throw new Error(`remote premium HTTP ${response.status}`);
+
+  const body = await response.json();
+  const row = body?.[code];
+  if (!row || typeof row !== "object") throw new Error(`remote premium missing ${code}`);
+
+  return {
+    premiumRate: numOrNull(row.premiumRate),
+    iopv: numOrNull(row.iopv),
+    nav: numOrNull(row.nav),
+    scale: numOrNull(row.scale),
+    navDate: row.navDate || "",
+  };
+}
+
 let proxyDispatcherPromise;
 function getProxyDispatcher() {
   if (!proxyDispatcherPromise) {
     proxyDispatcherPromise = (async () => {
-      const proxyUrl = globalThis.process?.env?.CN_HTTP_PROXY;
-      if (!proxyUrl || !globalThis.process.versions?.node) return null;
+      const proxyUrl = runtimeEnv.CN_HTTP_PROXY;
+      if (!proxyUrl) return null;
       try {
         const { ProxyAgent } = await import("undici");
         return new ProxyAgent(proxyUrl);
@@ -34,77 +66,84 @@ function getProxyDispatcher() {
   return proxyDispatcherPromise;
 }
 
-function numOrNull(value) {
-  const n = Number(value);
-  return Number.isFinite(n) && n > 0 ? n : null;
-}
-
-// 腾讯：v_sz159509="..."; 关键段 [77]=溢价率 [78]=IOPV [81]=单位净值
 async function fetchTencentInfo(code) {
-  const market = /^[569]/.test(code) ? "sh" : "sz"; // 沪：5/6/9 开头，深：0/1/2/3 开头
+  const market = /^[569]/.test(code) ? "sh" : "sz";
   const init = { headers: { "User-Agent": "Mozilla/5.0" } };
   const dispatcher = await getProxyDispatcher();
   if (dispatcher) init.dispatcher = dispatcher;
-  const res = await fetch(`https://qt.gtimg.cn/q=${market}${code}`, init);
-  if (!res.ok) throw new Error(`tencent HTTP ${res.status}`);
-  const text = GBK.decode(new Uint8Array(await res.arrayBuffer()));
-  const m = text.match(/"([^"]*)"/);
-  if (!m) throw new Error("tencent 空响应");
-  const p = m[1].split("~");
+
+  const response = await fetch(`https://qt.gtimg.cn/q=${market}${code}`, init);
+  if (!response.ok) throw new Error(`tencent HTTP ${response.status}`);
+
+  const text = GBK.decode(new Uint8Array(await response.arrayBuffer()));
+  const match = text.match(/"([^\"]*)"/);
+  if (!match) throw new Error("tencent empty response");
+
+  const fields = match[1].split("~");
   return {
-    iopv: numOrNull(p[78]),
-    nav: numOrNull(p[81]),
-    premiumRate: numOrNull(p[77]),
-    scale: numOrNull(p[44]), // 基金规模，单位：亿元
+    iopv: numOrNull(fields[78]),
+    nav: numOrNull(fields[81]),
+    premiumRate: numOrNull(fields[77]),
+    scale: numOrNull(fields[44]),
     navDate: "",
   };
 }
 
-// 新浪基金：var hq_str_f_159509="名称,单位净值,累计净值,估算净值,净值日期,...";
 async function fetchSinaInfo(code) {
   const init = {
-    headers: { Referer: "https://finance.sina.com.cn/", "User-Agent": "Mozilla/5.0" },
+    headers: {
+      Referer: "https://finance.sina.com.cn/",
+      "User-Agent": "Mozilla/5.0",
+    },
   };
   const dispatcher = await getProxyDispatcher();
   if (dispatcher) init.dispatcher = dispatcher;
-  const res = await fetch(`https://hq.sinajs.cn/list=f_${code}`, init);
-  if (!res.ok) throw new Error(`sina HTTP ${res.status}`);
-  const text = GBK.decode(new Uint8Array(await res.arrayBuffer()));
-  const m = text.match(/"([^"]*)"/);
-  if (!m) throw new Error("sina 空响应");
-  const parts = m[1].split(",");
+
+  const response = await fetch(`https://hq.sinajs.cn/list=f_${code}`, init);
+  if (!response.ok) throw new Error(`sina HTTP ${response.status}`);
+
+  const text = GBK.decode(new Uint8Array(await response.arrayBuffer()));
+  const match = text.match(/"([^\"]*)"/);
+  if (!match) throw new Error("sina empty response");
+
+  const fields = match[1].split(",");
   return {
     iopv: null,
-    nav: numOrNull(parts[1]),
+    nav: numOrNull(fields[1]),
     premiumRate: null,
     scale: null,
-    navDate: parts[4] || "",
+    navDate: fields[4] || "",
   };
 }
 
+async function fetchDirectInfo(code) {
+  const [tencent, sina] = await Promise.all([
+    fetchTencentInfo(code).catch(() => null),
+    fetchSinaInfo(code).catch(() => null),
+  ]);
+
+  if (tencent) return { ...tencent, navDate: sina?.navDate || tencent.navDate };
+  if (sina) return sina;
+  return null;
+}
+
 export async function fetchQdiiPremium(code, price) {
-  const EMPTY = { premiumRate: null, iopv: null, nav: null, scale: null, navDate: "" };
-  if (!price || price <= 0) return EMPTY;
+  if (!price || price <= 0) return emptyInfo();
 
   let info = navCache.get(code);
   if (!info || info.expiresAt <= Date.now()) {
-    const tencent = await fetchTencentInfo(code).catch(() => null);
-    const sina = await fetchSinaInfo(code).catch(() => null);
+    // 配置云函数后，生产环境只走云函数，不再从东京 VPS 直连腾讯/新浪。
+    info = REMOTE_PREMIUM_URL
+      ? await fetchRemoteInfo(code).catch(() => null)
+      : await fetchDirectInfo(code);
 
-    let fresh = null;
-    if (tencent) {
-      // 腾讯有数据：用腾讯的 IOPV/溢价率，借新浪补净值日期
-      fresh = { ...tencent, navDate: sina?.navDate || tencent.navDate };
-    } else if (sina) {
-      fresh = sina; // 腾讯挂了：回退新浪单位净值
+    if (info) {
+      navCache.set(code, { ...info, expiresAt: Date.now() + NAV_CACHE_TTL_MS });
     }
-    if (fresh) navCache.set(code, { ...fresh, expiresAt: Date.now() + NAV_CACHE_TTL_MS });
-    info = fresh;
   }
 
-  if (!info) return EMPTY;
+  if (!info) return emptyInfo();
 
-  // 溢价率：优先腾讯现成的；否则用 IOPV/单位净值自算
   let premiumRate = info.premiumRate;
   if (premiumRate === null) {
     const base = info.iopv || info.nav;
