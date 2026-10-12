@@ -132,7 +132,7 @@ function renderUs(rows, tradeDate) {
     if (r.dd !== null) extras.push(`距高点 ${r.dd >= 0 ? "+" : ""}${r.dd.toFixed(1)}%`);
     if (r.vsSma200 !== null) extras.push(`年线${r.vsSma200 >= 0 ? "上方 +" : "下方 "}${Math.abs(r.vsSma200).toFixed(1)}%`);
     lines.push(
-      `- **${r.symbol}** ${r.name}：${r.price}（${fmtSigned(r.changePct)}）${extras.length ? ` · ${extras.join(" · ")}` : ""}`
+      `- **${r.symbol}** ${r.name}：${Number(r.price).toFixed(2)}（${fmtSigned(r.changePct)}）${extras.length ? ` · ${extras.join(" · ")}` : ""}`
     );
   }
   lines.push(`> 推送时间：${bjLabel()}（北京时间）`);
