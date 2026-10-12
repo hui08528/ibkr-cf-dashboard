@@ -67,6 +67,7 @@ async function fetchTencent(code) {
     iopv: numberOrNull(fields[78]),
     nav: numberOrNull(fields[81]),
     scale: numberOrNull(fields[44]),
+    turnoverRate: numberOrNull(fields[38]),
   };
 }
 
@@ -119,6 +120,7 @@ app.get("/qdii-premium", async (req, res) => {
       iopv: tencent?.iopv ?? null,
       nav: tencent?.nav ?? sina?.nav ?? null,
       scale: tencent?.scale ?? null,
+      turnoverRate: tencent?.turnoverRate ?? null,
       navDate: sina?.navDate ?? "",
       fetchedAt: new Date().toISOString(),
     };
@@ -238,6 +240,7 @@ iopv
 nav
 navDate
 scale
+turnoverRate
 ```
 
 当前项目已经通过本地检查，并验证了 `/api/market` 能返回腾讯云函数提供的 QDII 数据。
@@ -252,6 +255,7 @@ scale
 | 单位净值 | 腾讯云函数转发腾讯/新浪行情 |
 | 净值日期 | 腾讯云函数转发新浪行情 |
 | 基金规模 | 腾讯云函数转发腾讯行情 |
+| QDII 换手率 | 腾讯云函数转发腾讯行情（字段 38） |
 | 美股行情 | Longbridge / Alpha Vantage |
 | 财报日历 | Finnhub / Longbridge / Alpha Vantage |
 | CNN 恐慌贪婪指数 | CNN |

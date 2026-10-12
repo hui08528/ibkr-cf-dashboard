@@ -4,7 +4,8 @@
 
 const GBK = new TextDecoder("gbk");
 const navCache = new Map();
-const NAV_CACHE_TTL_MS = 3600 * 1000;
+// 溢价/换手率盘中都会变，缓存 5 分钟（与行情缓存对齐），净值日期等低频字段一起短缓存可接受
+const NAV_CACHE_TTL_MS = 300 * 1000;
 const runtimeEnv = globalThis.process?.env || {};
 
 const REMOTE_PREMIUM_URL = String(runtimeEnv.CN_PREMIUM_API_URL || "").trim();
@@ -16,7 +17,7 @@ function numOrNull(value) {
 }
 
 function emptyInfo() {
-  return { premiumRate: null, iopv: null, nav: null, scale: null, navDate: "" };
+  return { premiumRate: null, iopv: null, nav: null, scale: null, turnoverRate: null, navDate: "" };
 }
 
 async function fetchRemoteInfo(code) {
@@ -45,6 +46,7 @@ async function fetchRemoteInfo(code) {
     iopv: numOrNull(row.iopv),
     nav: numOrNull(row.nav),
     scale: numOrNull(row.scale),
+    turnoverRate: numOrNull(row.turnoverRate),
     navDate: row.navDate || "",
   };
 }
@@ -85,6 +87,7 @@ async function fetchTencentInfo(code) {
     nav: numOrNull(fields[81]),
     premiumRate: numOrNull(fields[77]),
     scale: numOrNull(fields[44]),
+    turnoverRate: numOrNull(fields[38]), // 换手率 %（成交量 ÷ 流通份额）
     navDate: "",
   };
 }
@@ -155,6 +158,7 @@ export async function fetchQdiiPremium(code, price) {
     iopv: info.iopv,
     nav: info.nav,
     scale: info.scale ?? null,
+    turnoverRate: info.turnoverRate ?? null,
     navDate: info.navDate || "",
   };
 }

@@ -580,8 +580,9 @@ function renderQuoteCard(quote) {
       </div>`
     : "";
 
-  // 成交额 / 规模（仅 QDII）
+  // 成交额 / 规模 / 换手率（仅 QDII）
   const turnYi = quote.turnover ? quote.turnover / 1e8 : null;
+  const turnoverRate = quote.turnoverRate === null || quote.turnoverRate === undefined ? null : number(quote.turnoverRate);
   const liqBlock = hasPremium
     ? `
       <div class="market-liq">
@@ -589,6 +590,7 @@ function renderQuoteCard(quote) {
           ? `<span class="change-tip" title="成交额：今日场内成交 ${turnYi.toFixed(2)} 亿元。高溢价时若成交清淡，卖出可能无人接盘，只能折价离场。">成交 ${turnYi.toFixed(2)}亿</span>`
           : "成交 -"}
         ${quote.scale ? ` · 规模 ${quote.scale.toFixed(0)}亿` : ""}
+        ${turnoverRate !== null ? ` · <span class="change-tip" title="换手率：今日成交量 ÷ 流通份额，反映筹码活跃度。极端高溢价+高换手，往往伴随投机盘集中。">换手 ${turnoverRate.toFixed(2)}%</span>` : ""}
       </div>`
     : "";
 
