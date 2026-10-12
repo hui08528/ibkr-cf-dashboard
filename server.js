@@ -11,6 +11,7 @@ import { onRequestGet as rebalanceHandler } from "./functions/api/rebalance.js";
 import { loadStrategy, saveStrategy } from "./functions/api/lib/strategy-store.js";
 import { ensureStarted, addSubscriber, snapshotEvent } from "./functions/api/lib/quote-stream.js";
 import { runAlertCycle } from "./functions/api/lib/alert-engine.js";
+import { maybeDailyReports, forceReport } from "./functions/api/lib/daily-report.js";
 import {
   listAlerts,
   createAlert,
@@ -101,6 +102,17 @@ app.put("/api/alerts/:id", express.json({ limit: "32kb" }), (req, res) => update
 app.delete("/api/alerts/:id", (req, res) => deleteAlert(req, res, process.env));
 app.post("/api/alerts/:id/test", (req, res) => testAlertEndpoint(req, res, process.env));
 
+// 收盘日报手动触发（验证用）：POST /api/reports/run?kind=us|cn，忽略窗口与去重立即推送
+app.post("/api/reports/run", async (req, res) => {
+  const kind = String(req.query.kind || "cn") === "us" ? "us" : "cn";
+  try {
+    const outcome = await forceReport(kind, process.env);
+    res.status(outcome.sent?.ok ? 200 : 502).json(outcome);
+  } catch (error) {
+    res.status(500).json({ error: "Report failed", message: error.message });
+  }
+});
+
 // —— 静态资源：默认 public, max-age=0 + ETag，不设长缓存（前端文件无版本 hash） ——
 app.use(
   express.static(path.join(__dirname, "public"), {
@@ -149,4 +161,25 @@ function startAlertScheduler(env) {
   console.log(`[alerts] 告警调度已启动，间隔 ${intervalSeconds}s`);
 }
 
+// —— 收盘日报调度：每分钟检查窗口，按"数据是否已进入新交易日"去重，状态落盘 ——
+function startReportScheduler(env) {
+  if (String(env.REPORT_ENABLED ?? "true").toLowerCase() === "false") {
+    console.log("[reports] REPORT_ENABLED=false，收盘日报调度未启动");
+    return;
+  }
+  const tick = async () => {
+    try {
+      const result = await maybeDailyReports(env);
+      if (result.us?.sent) console.log(`[reports] 美股收盘日报已推送 ${result.us.tradeDate}`);
+      if (result.cn?.sent) console.log(`[reports] QDII 收盘日报已推送 ${result.cn.tradeDate}`);
+    } catch (error) {
+      console.error(`[reports] 日报周期异常: ${error.message}`);
+    }
+  };
+  setTimeout(tick, 20_000); // 启动后 20s 先跑一次（重启落在窗口内也能补发）
+  setInterval(tick, 60_000);
+  console.log("[reports] 收盘日报调度已启动（60s 检查一次）");
+}
+
 startAlertScheduler(process.env);
+startReportScheduler(process.env);
