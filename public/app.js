@@ -475,12 +475,12 @@ function renderInsightsTable() {
   if (!tbody) return;
 
   if (popularEarningsStatus === "loading") {
-    tbody.innerHTML = `<tr><td colspan="5" class="empty-cell">正在加载财报日历...</td></tr>`;
+    tbody.innerHTML = `<div class="empty-cell">正在加载财报日历...</div>`;
     return;
   }
 
   if (popularEarningsStatus === "unavailable") {
-    tbody.innerHTML = `<tr><td colspan="4" class="empty-cell">财报日历暂不可用，请检查 Alpha Vantage 配置。</td></tr>`;
+    tbody.innerHTML = `<div class="empty-cell">财报日历暂不可用，请检查 Finnhub / 长桥 / Alpha Vantage 配置。</div>`;
     return;
   }
 
@@ -493,27 +493,91 @@ function renderInsightsTable() {
     return aDate.localeCompare(bDate);
   });
 
-  tbody.innerHTML = rows.map((company) => {
-    const item = popularEarningsBySymbol[company.symbol] || {};
-    const reportDate = item.reportDate ? formatDateLabel(item.reportDate) : "暂无日期";
-    // 财报期：Finnhub 源给出财季文本（如 2025Q3），直接展示；无则回退 AV 的截止日
-    const fiscalDate = item.fiscalPeriod
-      ? escapeHtml(item.fiscalPeriod)
-      : (item.fiscalDateEnding ? formatDateLabel(item.fiscalDateEnding) : "-");
+  tbody.innerHTML = rows.map((company) => renderEarningsCard(company, popularEarningsBySymbol[company.symbol] || {})).join("");
+}
 
+function renderEarningsCard(company, item) {
+  const hasDate = Boolean(item.reportDate);
+  if (!hasDate) {
     return `
-      <tr>
-        <td class="symbol-cell">${escapeHtml(company.symbol)}</td>
-        <td>
-          <div class="company-name">${escapeHtml(company.nameCn)}</div>
-          <div class="company-subname">${escapeHtml(company.name)}</div>
-        </td>
-        <td>${reportDate} ${sessionLabel(item.session)}</td>
-        <td>${fiscalDate}</td>
-        <td>${revenueCell(item)}</td>
-      </tr>
-    `;
-  }).join("");
+      <div class="earnings-card earnings-card-tbd">
+        <div class="ec-head"><span class="ec-symbol">${escapeHtml(company.symbol)}</span></div>
+        <div class="ec-name">${escapeHtml(company.nameCn)}</div>
+        <div class="ec-subname">${escapeHtml(company.name)}</div>
+        <div class="ec-date-muted">财报日期待定</div>
+      </div>`;
+  }
+
+  const days = earningsDaysUntil(item.reportDate);
+  const countdownCls = days === 0 ? "ec-countdown-today" : days <= 7 ? "ec-countdown-soon" : "";
+  const cardCls = days === 0 ? "earnings-card-today" : days <= 7 ? "earnings-card-soon" : "";
+  const countdown =
+    days < 0
+      ? `已发布 ${Math.abs(days)} 天`
+      : days === 0
+        ? "今日发财报"
+        : `还有 ${days} 天`;
+  const fiscalPeriod = item.fiscalPeriod
+    ? escapeHtml(item.fiscalPeriod)
+    : item.fiscalDateEnding
+      ? escapeHtml(formatDateLabel(item.fiscalDateEnding))
+      : "—";
+  const stars = Number(item.star) > 0 ? `<span class="ec-stars">${"★".repeat(Math.min(5, Number(item.star)))}</span>` : "";
+
+  // 财报已发（有实际值）展示实际，否则展示预估
+  const eps = item.actualEps
+    ? `<span class="ec-actual">EPS ${formatEps(item.actualEps)}<i>实际</i></span>`
+    : item.estimate
+      ? `<span title="预估每股收益">EPS预 ${formatEps(item.estimate)}</span>`
+      : "";
+  const revenue = item.actualRevenue
+    ? `<span class="ec-actual">营收 ${formatUsdAmount(item.actualRevenue)}<i>实际</i></span>`
+    : item.estimateRevenue
+      ? `<span title="预估营收">营收预 ${formatUsdAmount(item.estimateRevenue)}</span>`
+      : "";
+
+  return `
+    <div class="earnings-card ${cardCls}">
+      <div class="ec-head">
+        <span class="ec-symbol">${escapeHtml(company.symbol)}</span>
+        ${stars}
+      </div>
+      <div class="ec-name">${escapeHtml(company.nameCn)}</div>
+      <div class="ec-subname">${escapeHtml(company.name)}</div>
+      <div class="ec-date">${escapeHtml(formatDateLabel(item.reportDate))} ${sessionLabel(item.session)}</div>
+      <div class="ec-countdown ${countdownCls}">${countdown}</div>
+      <div class="ec-period">财报期 ${fiscalPeriod}</div>
+      <div class="ec-est">${eps}${eps && revenue ? " · " : ""}${revenue}</div>
+    </div>`;
+}
+
+// 距财报日的自然日差（UTC 口径，避免时区造成差一天）；负数=已过
+function earningsDaysUntil(dateText) {
+  const target = Date.parse(`${dateText}T00:00:00Z`);
+  if (!Number.isFinite(target)) return NaN;
+  const now = new Date();
+  const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  return Math.round((target - today) / 86_400_000);
+}
+
+function formatEps(raw) {
+  const v = Number(String(raw ?? "").replace(/[$,\s]/g, ""));
+  return Number.isFinite(v) ? `$${v.toFixed(2)}` : "—";
+}
+
+// Finnhub/长桥返回形如 "111.32 B" / "254.9 M" / "1,234.5"，统一成中文金额口径
+function formatUsdAmount(raw) {
+  if (raw === null || raw === undefined || raw === "") return "—";
+  const match = String(raw).trim().match(/^([\d,.]+)\s*([KMBT])?$/i);
+  if (!match) return escapeHtml(String(raw));
+  let v = Number(match[1].replace(/,/g, ""));
+  if (!Number.isFinite(v)) return "—";
+  const mult = { K: 1e3, M: 1e6, B: 1e9, T: 1e12, "": 1 }[(match[2] || "").toUpperCase()];
+  v *= mult;
+  if (v >= 1e12) return `$${(v / 1e12).toFixed(2)}万亿`;
+  if (v >= 1e8) return `$${(v / 1e8).toFixed(v >= 1e10 ? 0 : 1)}亿`;
+  if (v >= 1e4) return `$${(v / 1e4).toFixed(1)}万`;
+  return `$${Math.round(v)}`;
 }
 
 async function loadMarketSnapshot() {
@@ -2546,14 +2610,6 @@ function normalizeEarningsSymbol(symbol) {
 }
 
 // 预估营收列：财报已发布则显示实际值（悬停看预估），否则显示预估
-function revenueCell(item) {
-  if (item.actualRevenue) {
-    const tip = item.estimateRevenue ? `预估营收 ${item.estimateRevenue}` : "";
-    return `<span${tip ? ` title="${escapeHtml(tip)}"` : ""}>${escapeHtml(item.actualRevenue)}</span><span class="revenue-tag">实际</span>`;
-  }
-  return item.estimateRevenue ? escapeHtml(item.estimateRevenue) : "—";
-}
-
 function sessionLabel(session) {
   if (session === "pre") return `<span class="session-tag session-pre" title="美股开盘前发布">盘前</span>`;
   if (session === "post") return `<span class="session-tag session-post" title="美股收盘后发布">盘后</span>`;

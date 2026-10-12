@@ -467,6 +467,57 @@ body {
   padding: 16px 20px 20px;
 }
 
+/* —— 财报日历卡片 —— */
+.earnings-grid-wrap { padding: 16px 20px 20px; }
+.earnings-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 12px;
+}
+.earnings-card {
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.earnings-card-soon { border-left-color: #d97706; }
+.earnings-card-today { border-left-color: var(--down); }
+.earnings-card-tbd { opacity: 0.6; }
+[data-theme="dark"] .earnings-card-soon { border-left-color: #fbbf24; }
+.ec-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.ec-symbol { font-weight: 700; font-size: 14px; font-family: "SFMono-Regular", monospace; }
+.ec-stars { color: #f59e0b; font-size: 11px; letter-spacing: 1px; }
+.ec-name { font-weight: 600; font-size: 13px; margin-top: 2px; }
+.ec-subname { font-size: 11px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ec-date { font-size: 13px; margin-top: 6px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.ec-date-muted { font-size: 12px; color: var(--text-light); margin-top: 6px; }
+.ec-countdown { font-size: 12px; color: var(--text-muted); }
+.ec-countdown-soon { color: #d97706; font-weight: 600; }
+.ec-countdown-today { color: var(--down); font-weight: 700; }
+[data-theme="dark"] .ec-countdown-soon { color: #fbbf24; }
+.ec-period { font-size: 12px; color: var(--text-muted); }
+.ec-est {
+  font-size: 12px;
+  margin-top: auto;
+  padding-top: 6px;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.ec-actual i {
+  font-style: normal;
+  font-size: 10px;
+  background: var(--up-bg);
+  color: var(--up);
+  border-radius: 4px;
+  padding: 0 5px;
+  margin-left: 4px;
+}
+
 .market-item {
   min-width: 0;
   padding: 14px;
