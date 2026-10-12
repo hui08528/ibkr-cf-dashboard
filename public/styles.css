@@ -1272,6 +1272,21 @@ body {
   color: var(--text-muted) !important;
 }
 
+.framework-quote {
+  border-left: 3px solid var(--primary);
+  background: var(--surface-alt);
+  border-radius: 0 8px 8px 0;
+  padding: 10px 14px;
+  margin: 8px 0 12px;
+}
+.framework-quote p { margin: 0 0 6px; }
+.framework-quote p:last-of-type { margin-bottom: 0; }
+.framework-quote-meta {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 8px !important;
+}
+
 .framework-note {
   margin-top: 16px;
   padding: 20px;
