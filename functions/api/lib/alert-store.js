@@ -4,7 +4,7 @@
 // 规则 schema：
 // {
 //   id, name, enabled,
-//   kind: "premium_cross" | "price_cross" | "price_change_percent",
+//   kind: "premium_cross" | "premium_spread" | "price_cross" | "price_change_percent",
 //   symbol,
 //   params: { direction, ... },
 //   severity: "info" | "warning" | "critical",
@@ -15,11 +15,13 @@
 import fs from "node:fs";
 import path from "node:path";
 
-export const ALERT_KINDS = ["premium_cross", "price_cross", "price_change_percent"];
+export const ALERT_KINDS = ["premium_cross", "premium_spread", "price_cross", "price_change_percent"];
 export const SEVERITIES = ["info", "warning", "critical"];
 
 const DIRECTIONS_BY_KIND = {
   premium_cross: ["above", "below"],
+  // 溢价差：标的溢价高于同组（premiumGroup）最低溢价的百分点数
+  premium_spread: ["above"],
   price_cross: ["above", "below"],
   price_change_percent: ["up", "down"],
 };
@@ -77,6 +79,7 @@ export function validateAlert(alert) {
   if (!directions.includes(params.direction)) return `direction 非法: ${params.direction}`;
 
   if (alert.kind === "premium_cross" && !Number.isFinite(Number(params.value))) return "溢价阈值必须是数字";
+  if (alert.kind === "premium_spread" && !Number.isFinite(Number(params.value))) return "溢价差阈值必须是数字";
   if (alert.kind === "price_cross" && (!Number.isFinite(Number(params.price)) || Number(params.price) <= 0)) {
     return "价格阈值必须是正数";
   }
@@ -103,7 +106,7 @@ export function normalizeAlert(input) {
     cooldownSeconds: Number(input.cooldownSeconds) || 3600,
     lastTriggeredAt: input.lastTriggeredAt ? String(input.lastTriggeredAt) : null,
   };
-  if (kind === "premium_cross") normalized.params.value = Number(params.value);
+  if (kind === "premium_cross" || kind === "premium_spread") normalized.params.value = Number(params.value);
   if (kind === "price_cross") normalized.params.price = Number(params.price);
   if (kind === "price_change_percent") normalized.params.changePct = Number(params.changePct);
   return normalized;

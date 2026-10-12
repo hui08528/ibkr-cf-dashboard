@@ -12,7 +12,19 @@ import { loadAlerts, saveAlerts } from "./alert-store.js";
 import { fetchQdiiPremium } from "./cn-premium.js";
 import { getLatest } from "./quote-stream.js";
 import { sendToDingtalk } from "./dingtalk.js";
-import { usInstruments, cnInstruments } from "../market.js";
+import { onRequestGet as marketHandler, usInstruments, cnInstruments } from "../market.js";
+
+// 一轮评估内共享一次 /api/market 快照（premium_spread 需要同组全部溢价）
+let cnQuotesPromise = null;
+function getCnQuotes(env) {
+  if (!cnQuotesPromise) {
+    cnQuotesPromise = marketHandler({ env, request: { url: "http://localhost/" } })
+      .then((response) => response.json())
+      .then((body) => (Array.isArray(body.cnQuotes) ? body.cnQuotes : []))
+      .catch(() => []);
+  }
+  return cnQuotesPromise;
+}
 
 const NAME_BY_SYMBOL = new Map();
 const LONG_BRIDGE_BY_SYMBOL = new Map();
@@ -101,6 +113,28 @@ export async function evaluateRule(rule, env = {}) {
     };
   }
 
+  if (kind === "premium_spread") {
+    const quotes = await getCnQuotes(env);
+    const own = quotes.find((q) => q.symbol === symbol);
+    const ownPremium = num(own?.premiumRate);
+    if (ownPremium === null) return { triggered: false, skipped: true, reason: "溢价率不可用" };
+
+    const peers = quotes.filter(
+      (q) => own.premiumGroup && q.premiumGroup === own.premiumGroup && q.symbol !== symbol
+    );
+    const peerPremiums = peers.map((q) => num(q.premiumRate)).filter((v) => v !== null);
+    if (!peerPremiums.length) return { triggered: false, skipped: true, reason: "同组无数据" };
+
+    const groupMin = Math.min(...peerPremiums);
+    const minSymbol = peers.find((q) => num(q.premiumRate) === groupMin)?.symbol || "";
+    const spread = Math.round((ownPremium - groupMin) * 100) / 100;
+    return {
+      triggered: spread >= Number(params.value),
+      observedValue: spread,
+      detail: { ownPremium, groupMin, minSymbol, group: own.premiumGroup },
+    };
+  }
+
   if (kind === "price_cross") {
     const live = await resolveQuote(symbol, env);
     const price = live?.price;
@@ -139,6 +173,14 @@ function buildMessage(rule, result) {
         (result.detail?.iopv ? `（IOPV ${fmtNum(result.detail.iopv)}）` : "")
     );
     lines.push(`- 阈值：${direction} ${Number(rule.params.value)}%`);
+  } else if (rule.kind === "premium_spread") {
+    const d = result.detail || {};
+    lines.push(`### ${icon} ${rule.symbol} 溢价切换提醒`);
+    lines.push(`- ${name}`);
+    lines.push(
+      `- 当前溢价 ${fmtPct(d.ownPremium)}，较组内最低 ${d.minSymbol}（${fmtPct(d.groupMin)}）高出 ${fmtPct(result.observedValue)}`
+    );
+    lines.push(`- 阈值：高出 ≥ ${Number(rule.params.value)} 个百分点，可考虑换到低溢价同类`);
   } else if (rule.kind === "price_cross") {
     const direction = rule.params.direction === "above" ? "上穿" : "跌破";
     lines.push(`### ${icon} ${rule.symbol} 价格告警`);
@@ -172,6 +214,7 @@ export function isCnTradingHours(now = new Date()) {
  * @returns {Promise<{evaluated: number, triggered: number, notified: number, reason?: string}>}
  */
 export async function runAlertCycle(env = process.env) {
+  cnQuotesPromise = null; // 每轮重新取快照，避免 premium_spread 用上一轮缓存
   if (String(env.ALERT_ENABLED || "true").toLowerCase() === "false") {
     return { evaluated: 0, triggered: 0, notified: 0, reason: "ALERT_ENABLED=false" };
   }
@@ -228,6 +271,7 @@ export async function runAlertCycle(env = process.env) {
  * @returns {Promise<{evaluated: object, sent: {ok: boolean, errors?: string[]}}>}
  */
 export async function testAlert(rule, env = process.env) {
+  cnQuotesPromise = null; // 测试强制拉新快照
   const result = await evaluateRule(rule, env);
   const message = `${buildMessage(rule, result)}\n> 测试推送（未计入冷却）`;
   const sent = await sendToDingtalk(message, `${rule.symbol} 测试`, env);

@@ -945,6 +945,7 @@ async function loadRebalance() {
 
 const ALERT_KIND_LABELS = {
   premium_cross: "QDII 溢价率",
+  premium_spread: "组内溢价差",
   price_cross: "价格穿越",
   price_change_percent: "涨跌幅",
 };
@@ -953,6 +954,9 @@ const ALERT_DIRECTIONS = {
   premium_cross: [
     { value: "above", label: "上穿 ≥" },
     { value: "below", label: "跌破 ≤" },
+  ],
+  premium_spread: [
+    { value: "above", label: "高于组内最低 ≥" },
   ],
   price_cross: [
     { value: "above", label: "上穿 ≥" },
@@ -965,7 +969,11 @@ const ALERT_DIRECTIONS = {
 };
 
 function alertValueField(kind) {
-  return kind === "premium_cross" ? "value" : kind === "price_cross" ? "price" : "changePct";
+  return kind === "premium_cross" || kind === "premium_spread"
+    ? "value"
+    : kind === "price_cross"
+      ? "price"
+      : "changePct";
 }
 
 function wireAlerts() {
@@ -986,8 +994,20 @@ function wireAlerts() {
       directionSelect.appendChild(el);
     }
     const field = alertValueField(kind);
-    valueInput.placeholder = field === "price" ? "价格阈值" : field === "value" ? "溢价阈值 %" : "涨跌幅 %";
-    valueInput.title = field === "price" ? "价格阈值（如 2.5）" : field === "value" ? "溢价率阈值（如 20）" : "涨跌幅阈值（如 5）";
+    const placeholderByKind = {
+      premium_cross: "溢价阈值 %",
+      premium_spread: "溢价差阈值（百分点）",
+      price_cross: "价格阈值",
+      price_change_percent: "涨跌幅 %",
+    };
+    const titleByKind = {
+      premium_cross: "溢价率阈值（如 20）",
+      premium_spread: "高出同组最低溢价几个百分点触发（如 3）",
+      price_cross: "价格阈值（如 2.5）",
+      price_change_percent: "涨跌幅阈值（如 5）",
+    };
+    valueInput.placeholder = placeholderByKind[kind] || "阈值";
+    valueInput.title = titleByKind[kind] || "";
   };
 
   kindSelect?.addEventListener("change", refreshDirections);
@@ -1166,7 +1186,7 @@ function renderAlerts() {
     const field = alertValueField(rule.kind);
     const threshold = rule.params?.[field];
     const thresholdText =
-      threshold === undefined || threshold === null || threshold === "" ? "—" : String(threshold) + (rule.kind === "premium_cross" ? "%" : "");
+      threshold === undefined || threshold === null || threshold === "" ? "—" : String(threshold) + (rule.kind === "premium_cross" || rule.kind === "premium_spread" ? "%" : "");
     const directionLabel =
       (ALERT_DIRECTIONS[rule.kind] || []).find((option) => option.value === rule.params.direction)?.label || rule.params.direction;
     const tr = document.createElement("tr");
