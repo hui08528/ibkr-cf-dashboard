@@ -332,7 +332,10 @@ function renderFearGreed() {
   const score = clampScore(idx.score);
   const gauge = buildFearGreedGauge(score);
   const trend = buildFearGreedTrend(score, idx);
-  const rows = components.map((item) => buildFearGreedComponent(item)).join("");
+  const vixBlock = buildVixBlock(fearGreed.vix);
+  const rows = components
+    .map((item) => buildFearGreedComponent(item, fearGreed.vix?.value))
+    .join("");
 
   body.innerHTML = `
     <div class="fg-layout">
@@ -343,6 +346,7 @@ function renderFearGreed() {
           <span class="fg-rating fg-zone-${zoneKey(idx.rating)}">${escapeHtml(idx.ratingCn || idx.rating || "—")}</span>
         </div>
         <div class="fg-trend">${trend}</div>
+        ${vixBlock}
         <div class="fg-scale">0 极度恐惧 · 50 中性 · 100 极度贪婪</div>
       </div>
     </div>
@@ -417,13 +421,32 @@ function buildFearGreedTrend(current, idx) {
     .join("");
 }
 
-function buildFearGreedComponent(item) {
+function buildVixBlock(vix) {
+  if (!vix || !Number.isFinite(Number(vix.value))) return "";
+  const chg = Number(vix.changePercent);
+  const chgText = Number.isFinite(chg)
+    ? ` <span class="${chg >= 0 ? "fg-up" : "fg-down"}">${chg >= 0 ? "▲" : "▼"}${Math.abs(chg).toFixed(1)}%</span>`
+    : "";
+  return `
+    <div class="fg-vix" title="VIX 为 CBOE 波动率指数原始值（长桥行情）；CNN 七项分项中的『市场波动率 VIX』是把 VIX 标准化到 0-100 的评分，两者口径不同。长期均值约 19：<15 偏自满，>30 恐慌，>40 极度恐慌。">
+      <span class="fg-vix-label">VIX</span>
+      <strong class="fg-vix-value fg-vix-${escapeHtml(vix.regimeClass || "calm")}">${Number(vix.value).toFixed(2)}</strong>
+      <span class="fg-vix-regime">${escapeHtml(vix.regime || "")}</span>${chgText}
+    </div>`;
+}
+
+function buildFearGreedComponent(item, vixValue) {
   const zone = zoneKey(item.rating);
   const width = clampScore(item.score);
+  const rawVix =
+    item.key === "market_volatility_vix" && Number.isFinite(Number(vixValue))
+      ? `<span class="fg-comp-raw" title="VIX 原始值">原值 ${Number(vixValue).toFixed(2)}</span>`
+      : "";
   return `
     <div class="fg-component">
       <div class="fg-comp-head">
         <span class="fg-comp-name">${escapeHtml(item.name)}</span>
+        ${rawVix}
         <span class="fg-comp-rating fg-zone-${zone}">${escapeHtml(item.ratingCn || item.rating || "—")}</span>
         <span class="fg-comp-score">${fearGreedScoreLabel(item.score)}</span>
       </div>

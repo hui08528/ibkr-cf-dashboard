@@ -602,6 +602,34 @@ body {
   color: var(--text-light);
 }
 
+.fg-vix {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  background: var(--surface-alt);
+  font-size: 13px;
+  width: fit-content;
+  font-variant-numeric: tabular-nums;
+}
+.fg-vix-label { color: var(--text-muted); font-size: 12px; letter-spacing: 0.5px; }
+.fg-vix-value { font-size: 17px; }
+.fg-vix-calm { color: var(--up); }
+.fg-vix-warn { color: #d97706; }
+.fg-vix-danger { color: var(--down); }
+[data-theme="dark"] .fg-vix-warn { color: #fbbf24; }
+.fg-vix-regime { color: var(--text-muted); font-size: 12px; }
+.fg-comp-raw {
+  font-size: 11px;
+  color: var(--text-muted);
+  background: var(--surface-alt);
+  border-radius: 6px;
+  padding: 1px 7px;
+  margin-left: 2px;
+}
+
 .fg-components {
   margin-top: 20px;
   padding-top: 16px;

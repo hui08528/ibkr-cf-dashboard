@@ -3,6 +3,17 @@
 // 该指数每天收盘后更新一次，返回体约 170KB，因此做 1 小时内存缓存并只回传精简字段。
 const CNN_URL = "https://production.dataviz.cnn.io/index/fearandgreed/graphdata";
 
+import { fetchQuote } from "./lib/longbridge.js";
+
+// VIX 区间定性（与 daily-report 保持一致）
+export function vixRegime(v) {
+  if (v >= 40) return { label: "极度恐慌", cls: "danger" };
+  if (v >= 30) return { label: "恐慌", cls: "danger" };
+  if (v >= 20) return { label: "波动偏高", cls: "warn" };
+  if (v >= 15) return { label: "平稳", cls: "calm" };
+  return { label: "低位平静（偏自满）", cls: "calm" };
+}
+
 const RATING_CN = {
   "extreme fear": "极度恐惧",
   fear: "恐惧",
@@ -33,13 +44,19 @@ export async function onRequestGet({ env }) {
       return json(200, { ...cached, cached: true });
     }
 
-    const response = await fetch(CNN_URL, {
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-        Referer: "https://www.cnn.com/partners/fear-and-greed",
-        Accept: "application/json",
-      },
-    });
+    // CNN 与 VIX（长桥 .VIX.US）并行拉取；VIX 失败不影响指数主体
+    const [response, vixQuote] = await Promise.all([
+      fetch(CNN_URL, {
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+          Referer: "https://www.cnn.com/partners/fear-and-greed",
+          Accept: "application/json",
+        },
+      }),
+      fetchQuote("VIX", { symbol: "VIX", name: "CBOE Volatility Index", longbridgeSymbol: ".VIX.US" }).catch(
+        () => null
+      ),
+    ]);
 
     if (!response.ok) {
       return json(502, {
@@ -50,6 +67,16 @@ export async function onRequestGet({ env }) {
 
     const body = await response.json();
     const payload = buildPayload(body);
+    const vix = round1(vixQuote?.price);
+    payload.vix =
+      vix !== null
+        ? {
+            value: vix,
+            changePercent: round1(vixQuote?.changePercent),
+            regime: vixRegime(vix).label,
+            regimeClass: vixRegime(vix).cls,
+          }
+        : null;
     cached = payload;
     cachedAt = Date.now();
     return json(200, { ...payload, cached: false });
