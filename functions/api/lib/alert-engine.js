@@ -13,6 +13,7 @@ import { fetchQdiiPremium } from "./cn-premium.js";
 import { getLatest } from "./quote-stream.js";
 import { sendToDingtalk } from "./dingtalk.js";
 import { onRequestGet as marketHandler, usInstruments, cnInstruments } from "../market.js";
+import { onRequestGet as fearGreedHandler } from "../fear-greed.js";
 
 // 一轮评估内共享一次 /api/market 快照（premium_spread 需要同组全部溢价）
 let cnQuotesPromise = null;
@@ -24,6 +25,17 @@ function getCnQuotes(env) {
       .catch(() => []);
   }
   return cnQuotesPromise;
+}
+
+// 一轮评估内共享一次恐慌贪婪指数（fear_greed_cross 用）
+let fearGreedPromise = null;
+function getFearGreed(env) {
+  if (!fearGreedPromise) {
+    fearGreedPromise = fearGreedHandler({ env, request: { url: "http://localhost/" } })
+      .then((response) => response.json())
+      .catch(() => null);
+  }
+  return fearGreedPromise;
 }
 
 const NAME_BY_SYMBOL = new Map();
@@ -135,6 +147,19 @@ export async function evaluateRule(rule, env = {}) {
     };
   }
 
+  if (kind === "fear_greed_cross") {
+    const fg = await getFearGreed(env);
+    const score = num(fg?.index?.score);
+    if (score === null) return { triggered: false, skipped: true, reason: "恐慌指数不可用" };
+    const value = Number(params.value);
+    const triggered = params.direction === "above" ? score >= value : score <= value;
+    return {
+      triggered,
+      observedValue: score,
+      detail: { rating: fg?.index?.ratingCn || fg?.index?.rating || "" },
+    };
+  }
+
   if (kind === "price_cross") {
     const live = await resolveQuote(symbol, env);
     const price = live?.price;
@@ -181,6 +206,17 @@ function buildMessage(rule, result) {
       `- 当前溢价 ${fmtPct(d.ownPremium)}，较组内最低 ${d.minSymbol}（${fmtPct(d.groupMin)}）高出 ${fmtPct(result.observedValue)}`
     );
     lines.push(`- 阈值：高出 ≥ ${Number(rule.params.value)} 个百分点，可考虑换到低溢价同类`);
+  } else if (rule.kind === "fear_greed_cross") {
+    const d = result.detail || {};
+    const direction = rule.params.direction === "above" ? "上穿" : "跌破";
+    lines.push(`### ${icon} 恐慌贪婪指数告警`);
+    lines.push(`- 当前：${fmtNum(result.observedValue, 1)}（${d.rating || "-"}）`);
+    lines.push(`- 阈值：${direction} ${Number(rule.params.value)}`);
+    lines.push(
+      rule.params.direction === "below"
+        ? `- 进入恐惧区，关注分批加仓机会（PDF 极端口径 10 以下）`
+        : `- 进入贪婪区，警惕追高、考虑止盈（PDF 极端口径 85 以上）`
+    );
   } else if (rule.kind === "price_cross") {
     const direction = rule.params.direction === "above" ? "上穿" : "跌破";
     lines.push(`### ${icon} ${rule.symbol} 价格告警`);
@@ -215,6 +251,7 @@ export function isCnTradingHours(now = new Date()) {
  */
 export async function runAlertCycle(env = process.env) {
   cnQuotesPromise = null; // 每轮重新取快照，避免 premium_spread 用上一轮缓存
+  fearGreedPromise = null;
   if (String(env.ALERT_ENABLED || "true").toLowerCase() === "false") {
     return { evaluated: 0, triggered: 0, notified: 0, reason: "ALERT_ENABLED=false" };
   }
@@ -272,6 +309,7 @@ export async function runAlertCycle(env = process.env) {
  */
 export async function testAlert(rule, env = process.env) {
   cnQuotesPromise = null; // 测试强制拉新快照
+  fearGreedPromise = null;
   const result = await evaluateRule(rule, env);
   const message = `${buildMessage(rule, result)}\n> 测试推送（未计入冷却）`;
   const sent = await sendToDingtalk(message, `${rule.symbol} 测试`, env);

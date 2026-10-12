@@ -12,9 +12,10 @@
 import fs from "node:fs";
 import path from "node:path";
 import { getLatest } from "./quote-stream.js";
-import { fetchDailyCandlesticks } from "./longbridge.js";
+import { fetchDailyCandlesticks, fetchQuote } from "./longbridge.js";
 import { sendToDingtalk } from "./dingtalk.js";
 import { onRequestGet as marketHandler } from "../market.js";
+import { onRequestGet as fearGreedHandler } from "../fear-greed.js";
 
 const US_SYMBOLS = [
   { symbol: "QQQ", name: "纳指100" },
@@ -121,7 +122,53 @@ async function buildUsRows() {
   return rows;
 }
 
-function renderUs(rows, tradeDate) {
+// 情绪面：CNN 恐慌贪婪（收盘后更新一次，日报天然是收盘值）+ VIX 原值（长桥 .VIX.US）
+async function buildSentiment(env) {
+  const out = { fg: null, vix: null };
+  const [fgResponse, vixQuote] = await Promise.all([
+    fearGreedHandler({ env, request: { url: "http://localhost/" } }).then((r) => r.json()).catch(() => null),
+    fetchQuote("VIX", { symbol: "VIX", longbridgeSymbol: ".VIX.US" }).catch(() => null),
+  ]);
+
+  const score = Number(fgResponse?.index?.score);
+  if (Number.isFinite(score)) {
+    const comp = Object.fromEntries((fgResponse.components || []).map((c) => [c.key, c.score]));
+    out.fg = {
+      score,
+      rating: fgResponse.index.ratingCn || fgResponse.index.rating || "",
+      momentum: comp.market_momentum_sp125 ?? null,
+      vixScore: comp.market_volatility_vix ?? null,
+      breadth: comp.stock_price_breadth ?? null,
+    };
+  }
+
+  const vix = Number(vixQuote?.price);
+  if (Number.isFinite(vix) && vix > 0) out.vix = vix;
+  return out;
+}
+
+function vixRegime(v) {
+  if (v >= 40) return "极度恐慌";
+  if (v >= 30) return "恐慌";
+  if (v >= 20) return "波动偏高";
+  if (v >= 15) return "平稳";
+  return "低位平静（偏自满）";
+}
+
+function renderSentiment(s) {
+  const lines = [];
+  if (s.fg) {
+    const parts = [];
+    if (s.fg.vixScore !== null) parts.push(`VIX分项 ${s.fg.vixScore}`);
+    if (s.fg.momentum !== null) parts.push(`动量 ${s.fg.momentum}`);
+    if (s.fg.breadth !== null) parts.push(`广度 ${s.fg.breadth}`);
+    lines.push(`- 恐慌贪婪：**${s.fg.score} ${s.fg.rating}**${parts.length ? `（${parts.join(" · ")}）` : ""}`);
+  }
+  if (s.vix !== null) lines.push(`- VIX：**${s.vix}**（${vixRegime(s.vix)}）`);
+  return lines;
+}
+
+function renderUs(rows, tradeDate, sentiment) {
   const lines = [`### 📊 美股收盘日报（${tradeDate}）`];
   for (const r of rows) {
     if (!r.price) {
@@ -134,6 +181,11 @@ function renderUs(rows, tradeDate) {
     lines.push(
       `- **${r.symbol}** ${r.name}：${Number(r.price).toFixed(2)}（${fmtSigned(r.changePct)}）${extras.length ? ` · ${extras.join(" · ")}` : ""}`
     );
+  }
+  const sentimentLines = renderSentiment(sentiment);
+  if (sentimentLines.length) {
+    lines.push("**情绪面**");
+    lines.push(...sentimentLines);
   }
   lines.push(`> 推送时间：${bjLabel()}（北京时间）`);
   return lines.join("\n");
@@ -155,7 +207,7 @@ async function maybeUs(state, env) {
   const hm = bj.hour * 100 + bj.minute;
   if (hm < 405 || hm > 630) return { sent: false, reason: "out-of-window" };
 
-  const rows = await buildUsRows();
+  const [rows, sentiment] = await Promise.all([buildUsRows(), buildSentiment(env)]);
   const dated = rows.filter((r) => r.tradeDate);
   const tradeDate = tzDate(now, US_TZ);
   if (state.usDate === tradeDate) return { sent: false, reason: "already-sent" };
@@ -164,7 +216,7 @@ async function maybeUs(state, env) {
   const qqqLatest = getLatest("QQQ");
   if (!isUsMarketClosed(qqqLatest, hm)) return { sent: false, reason: "market-open" };
 
-  const sent = await sendToDingtalk(renderUs(rows, tradeDate), "📊 美股收盘日报", env);
+  const sent = await sendToDingtalk(renderUs(rows, tradeDate, sentiment), "📊 美股收盘日报", env);
   if (sent.ok) {
     state.usDate = tradeDate;
     saveState(state, env);
@@ -245,9 +297,9 @@ export async function maybeDailyReports(env = process.env) {
 // 手动/测试：忽略窗口与去重，立即生成并推送；kind: "us" | "cn"
 export async function forceReport(kind, env = process.env) {
   if (kind === "us") {
-    const rows = await buildUsRows();
+    const [rows, sentiment] = await Promise.all([buildUsRows(), buildSentiment(env)]);
     const tradeDate = rows.find((r) => r.tradeDate)?.tradeDate || tzDate(new Date(), US_TZ);
-    const content = renderUs(rows, tradeDate);
+    const content = renderUs(rows, tradeDate, sentiment);
     const sent = await sendToDingtalk(content, "📊 美股收盘日报", env);
     return { kind, tradeDate, sent, preview: content };
   }

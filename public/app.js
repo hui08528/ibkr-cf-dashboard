@@ -946,6 +946,7 @@ async function loadRebalance() {
 const ALERT_KIND_LABELS = {
   premium_cross: "QDII 溢价率",
   premium_spread: "组内溢价差",
+  fear_greed_cross: "恐慌贪婪",
   price_cross: "价格穿越",
   price_change_percent: "涨跌幅",
 };
@@ -958,6 +959,10 @@ const ALERT_DIRECTIONS = {
   premium_spread: [
     { value: "above", label: "高于组内最低 ≥" },
   ],
+  fear_greed_cross: [
+    { value: "below", label: "跌破 ≤" },
+    { value: "above", label: "上穿 ≥" },
+  ],
   price_cross: [
     { value: "above", label: "上穿 ≥" },
     { value: "below", label: "跌破 ≤" },
@@ -969,7 +974,7 @@ const ALERT_DIRECTIONS = {
 };
 
 function alertValueField(kind) {
-  return kind === "premium_cross" || kind === "premium_spread"
+  return kind === "premium_cross" || kind === "premium_spread" || kind === "fear_greed_cross"
     ? "value"
     : kind === "price_cross"
       ? "price"
@@ -997,17 +1002,28 @@ function wireAlerts() {
     const placeholderByKind = {
       premium_cross: "溢价阈值 %",
       premium_spread: "溢价差阈值（百分点）",
+      fear_greed_cross: "恐慌贪婪阈值 0-100",
       price_cross: "价格阈值",
       price_change_percent: "涨跌幅 %",
     };
     const titleByKind = {
       premium_cross: "溢价率阈值（如 20）",
       premium_spread: "高出同组最低溢价几个百分点触发（如 3）",
+      fear_greed_cross: "0-100：≤25 恐惧区分批加仓，≥75 贪婪区警惕追高（PDF 极端口径 10/85）",
       price_cross: "价格阈值（如 2.5）",
       price_change_percent: "涨跌幅阈值（如 5）",
     };
     valueInput.placeholder = placeholderByKind[kind] || "阈值";
     valueInput.title = titleByKind[kind] || "";
+    // 恐慌贪婪是全局指数，无具体标的：自动填伪代码 FG 并禁用代码框
+    if (symbolInput) {
+      if (kind === "fear_greed_cross") {
+        symbolInput.value = "FG";
+        symbolInput.disabled = true;
+      } else if (symbolInput.disabled) {
+        symbolInput.disabled = false;
+      }
+    }
   };
 
   kindSelect?.addEventListener("change", refreshDirections);
@@ -1024,7 +1040,9 @@ function wireAlerts() {
 
 function resetAlertForm() {
   document.getElementById("alert-id").value = "";
-  document.getElementById("alert-symbol").value = "";
+  const symInput = document.getElementById("alert-symbol");
+  symInput.value = "";
+  symInput.disabled = false;
   document.getElementById("alert-name").value = "";
   document.getElementById("alert-value").value = "";
   document.getElementById("alert-severity").value = "warning";
@@ -1186,7 +1204,9 @@ function renderAlerts() {
     const field = alertValueField(rule.kind);
     const threshold = rule.params?.[field];
     const thresholdText =
-      threshold === undefined || threshold === null || threshold === "" ? "—" : String(threshold) + (rule.kind === "premium_cross" || rule.kind === "premium_spread" ? "%" : "");
+      threshold === undefined || threshold === null || threshold === ""
+        ? "—"
+        : String(threshold) + (rule.kind === "premium_cross" || rule.kind === "premium_spread" ? "%" : "");
     const directionLabel =
       (ALERT_DIRECTIONS[rule.kind] || []).find((option) => option.value === rule.params.direction)?.label || rule.params.direction;
     const tr = document.createElement("tr");

@@ -15,13 +15,21 @@
 import fs from "node:fs";
 import path from "node:path";
 
-export const ALERT_KINDS = ["premium_cross", "premium_spread", "price_cross", "price_change_percent"];
+export const ALERT_KINDS = [
+  "premium_cross",
+  "premium_spread",
+  "fear_greed_cross",
+  "price_cross",
+  "price_change_percent",
+];
 export const SEVERITIES = ["info", "warning", "critical"];
 
 const DIRECTIONS_BY_KIND = {
   premium_cross: ["above", "below"],
   // 溢价差：标的溢价高于同组（premiumGroup）最低溢价的百分点数
   premium_spread: ["above"],
+  // 恐慌贪婪指数穿越（0-100，below=进入恐惧区，above=进入贪婪区）；symbol 固定为伪代码 FG
+  fear_greed_cross: ["above", "below"],
   price_cross: ["above", "below"],
   price_change_percent: ["up", "down"],
 };
@@ -72,7 +80,9 @@ export function validateAlerts(alerts) {
 export function validateAlert(alert) {
   if (!alert || typeof alert !== "object") return "规则不能为空";
   if (!ALERT_KINDS.includes(alert.kind)) return `不支持的告警类型: ${alert.kind}`;
-  if (!alert.symbol || !String(alert.symbol).trim()) return "标的代码不能为空";
+  if (alert.kind !== "fear_greed_cross" && (!alert.symbol || !String(alert.symbol).trim())) {
+    return "标的代码不能为空";
+  }
 
   const params = alert.params || {};
   const directions = DIRECTIONS_BY_KIND[alert.kind];
@@ -80,6 +90,10 @@ export function validateAlert(alert) {
 
   if (alert.kind === "premium_cross" && !Number.isFinite(Number(params.value))) return "溢价阈值必须是数字";
   if (alert.kind === "premium_spread" && !Number.isFinite(Number(params.value))) return "溢价差阈值必须是数字";
+  if (alert.kind === "fear_greed_cross") {
+    const v = Number(params.value);
+    if (!Number.isFinite(v) || v <= 0 || v >= 100) return "恐慌指数阈值须在 0–100 之间";
+  }
   if (alert.kind === "price_cross" && (!Number.isFinite(Number(params.price)) || Number(params.price) <= 0)) {
     return "价格阈值必须是正数";
   }
@@ -97,16 +111,18 @@ export function normalizeAlert(input) {
   const kind = String(input.kind || "");
   const normalized = {
     id: String(input.id || newUuid()),
-    name: String(input.name || input.symbol || ""),
+    name: String(input.name || (kind === "fear_greed_cross" ? "恐慌贪婪指数" : input.symbol) || ""),
     enabled: input.enabled !== false,
     kind,
-    symbol: String(input.symbol || "").trim(),
+    symbol: kind === "fear_greed_cross" ? "FG" : String(input.symbol || "").trim(),
     params: { direction: String(params.direction || (kind === "price_change_percent" ? "up" : "above")) },
     severity: String(input.severity || "warning"),
     cooldownSeconds: Number(input.cooldownSeconds) || 3600,
     lastTriggeredAt: input.lastTriggeredAt ? String(input.lastTriggeredAt) : null,
   };
-  if (kind === "premium_cross" || kind === "premium_spread") normalized.params.value = Number(params.value);
+  if (kind === "premium_cross" || kind === "premium_spread" || kind === "fear_greed_cross") {
+    normalized.params.value = Number(params.value);
+  }
   if (kind === "price_cross") normalized.params.price = Number(params.price);
   if (kind === "price_change_percent") normalized.params.changePct = Number(params.changePct);
   return normalized;
