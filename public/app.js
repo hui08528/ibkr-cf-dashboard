@@ -118,7 +118,7 @@ const titles = {
   guide: "部署指南",
 };
 
-const popularCompanies = [
+const defaultPopularCompanies = [
   { symbol: "AAPL", name: "Apple", nameCn: "苹果" },
   { symbol: "MSFT", name: "Microsoft", nameCn: "微软" },
   { symbol: "NVDA", name: "NVIDIA", nameCn: "英伟达" },
@@ -134,6 +134,20 @@ const popularCompanies = [
   { symbol: "JPM", name: "JPMorgan Chase", nameCn: "摩根大通" },
   { symbol: "LLY", name: "Eli Lilly", nameCn: "礼来" },
 ];
+const earningsWatchlistKey = "earnings-watchlist-v1";
+let popularCompanies = loadEarningsWatchlist();
+
+function loadEarningsWatchlist() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(earningsWatchlistKey) || "null");
+    if (Array.isArray(saved) && saved.length) return saved;
+  } catch (error) { console.warn("无法读取财报关注列表", error); }
+  return defaultPopularCompanies.map((item) => ({ ...item }));
+}
+
+function saveEarningsWatchlist() {
+  localStorage.setItem(earningsWatchlistKey, JSON.stringify(popularCompanies));
+}
 
 const savedTheme = localStorage.getItem("theme");
 if (savedTheme) document.documentElement.setAttribute("data-theme", savedTheme);
@@ -257,6 +271,28 @@ async function loadPopularEarnings(forceRefresh = false) {
     popularEarningsStatus = "unavailable";
   }
 
+  renderInsightsTable();
+}
+
+function addEarningsCompany() {
+  const symbol = window.prompt("输入股票代码，例如 CRM、ORCL、BABA");
+  if (!symbol) return;
+  const normalized = symbol.trim().toUpperCase();
+  if (!/^[A-Z0-9.-]{1,12}$/.test(normalized)) return window.alert("股票代码格式不正确");
+  if (popularCompanies.some((item) => item.symbol === normalized)) return window.alert("该公司已经在财报日历中");
+  const name = window.prompt("公司名称（可选）", normalized) || normalized;
+  popularCompanies.push({ symbol: normalized, name: name.trim() || normalized, nameCn: name.trim() || normalized });
+  saveEarningsWatchlist();
+  loadPopularEarnings(true);
+}
+
+function removeEarningsCompany(symbol) {
+  if (popularCompanies.length <= 1) return window.alert("至少保留一家公司");
+  const company = popularCompanies.find((item) => item.symbol === symbol);
+  if (!company || !window.confirm(`从财报日历删除 ${company.symbol}？`)) return;
+  popularCompanies = popularCompanies.filter((item) => item.symbol !== symbol);
+  delete popularEarningsBySymbol[symbol];
+  saveEarningsWatchlist();
   renderInsightsTable();
 }
 
@@ -475,12 +511,12 @@ function renderInsightsTable() {
   if (!tbody) return;
 
   if (popularEarningsStatus === "loading") {
-    tbody.innerHTML = `<div class="empty-cell">正在加载财报日历...</div>`;
+    tbody.innerHTML = `<div class="empty-cell earnings-empty">正在加载财报日历...</div>`;
     return;
   }
 
   if (popularEarningsStatus === "unavailable") {
-    tbody.innerHTML = `<div class="empty-cell">财报日历暂不可用，请检查 Finnhub / 长桥 / Alpha Vantage 配置。</div>`;
+    tbody.innerHTML = `<div class="empty-cell earnings-empty">财报日历暂不可用，请检查 Finnhub / 长桥 / Alpha Vantage 配置。</div>`;
     return;
   }
 
@@ -501,7 +537,7 @@ function renderEarningsCard(company, item) {
   if (!hasDate) {
     return `
       <div class="earnings-card earnings-card-tbd">
-        <div class="ec-head"><span class="ec-symbol">${escapeHtml(company.symbol)}</span></div>
+        <div class="ec-head"><span class="ec-symbol">${escapeHtml(company.symbol)}</span><button class="earnings-remove-btn" type="button" data-remove-earnings="${escapeHtml(company.symbol)}" title="删除此公司" aria-label="删除 ${escapeHtml(company.symbol)}">×</button></div>
         <div class="ec-name">${escapeHtml(company.nameCn)}</div>
         <div class="ec-subname">${escapeHtml(company.name)}</div>
         <div class="ec-date-muted">财报日期待定</div>
@@ -509,10 +545,13 @@ function renderEarningsCard(company, item) {
   }
 
   const days = earningsDaysUntil(item.reportDate);
-  const countdownCls = days === 0 ? "ec-countdown-today" : days <= 7 ? "ec-countdown-soon" : "";
-  const cardCls = days === 0 ? "earnings-card-today" : days <= 7 ? "earnings-card-soon" : "";
+  const hasValidDate = Number.isFinite(days);
+  const countdownCls = !hasValidDate ? "" : days === 0 ? "ec-countdown-today" : days > 0 && days <= 7 ? "ec-countdown-soon" : "";
+  const cardCls = !hasValidDate ? "earnings-card-tbd" : days === 0 ? "earnings-card-today" : days > 0 && days <= 7 ? "earnings-card-soon" : "";
   const countdown =
-    days < 0
+    !hasValidDate
+      ? "财报日期待确认"
+      : days < 0
       ? `已发布 ${Math.abs(days)} 天`
       : days === 0
         ? "今日发财报"
@@ -537,10 +576,10 @@ function renderEarningsCard(company, item) {
       : "";
 
   return `
-    <div class="earnings-card ${cardCls}">
+    <article class="earnings-card ${cardCls}" aria-label="${escapeHtml(`${company.symbol} ${company.nameCn} 财报`) }">
       <div class="ec-head">
         <span class="ec-symbol">${escapeHtml(company.symbol)}</span>
-        ${stars}
+        <span class="ec-actions">${stars}<button class="earnings-remove-btn" type="button" data-remove-earnings="${escapeHtml(company.symbol)}" title="删除此公司" aria-label="删除 ${escapeHtml(company.symbol)}">×</button></span>
       </div>
       <div class="ec-name">${escapeHtml(company.nameCn)}</div>
       <div class="ec-subname">${escapeHtml(company.name)}</div>
@@ -548,7 +587,7 @@ function renderEarningsCard(company, item) {
       <div class="ec-countdown ${countdownCls}">${countdown}</div>
       <div class="ec-period">财报期 ${fiscalPeriod}</div>
       <div class="ec-est">${eps}${eps && revenue ? " · " : ""}${revenue}</div>
-    </div>`;
+    </article>`;
 }
 
 // 距财报日的自然日差（UTC 口径，避免时区造成差一天）；负数=已过
@@ -948,6 +987,11 @@ function wireControls() {
   });
   document.getElementById("tx-filter")?.addEventListener("change", () => renderTxTable(currentTxFilter()));
   document.getElementById("earnings-refresh-btn")?.addEventListener("click", () => loadPopularEarnings(true));
+  document.getElementById("earnings-add-btn")?.addEventListener("click", addEarningsCompany);
+  document.getElementById("popular-earnings-body")?.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-remove-earnings]");
+    if (button) removeEarningsCompany(button.dataset.removeEarnings);
+  });
 
   document.getElementById("period-select")?.addEventListener("change", (event) => {
     document.querySelectorAll("#perf-tabs .chart-tab").forEach((item) => item.classList.toggle("active", item.dataset.range === event.target.value));

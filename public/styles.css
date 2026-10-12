@@ -474,6 +474,12 @@ body {
   grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
   gap: 12px;
 }
+.earnings-empty {
+  grid-column: 1 / -1;
+  min-height: 88px;
+  display: grid;
+  place-items: center;
+}
 .earnings-card {
   border: 1px solid var(--border);
   border-left: 3px solid var(--border);
@@ -484,12 +490,25 @@ body {
   flex-direction: column;
   gap: 3px;
   min-width: 0;
+  min-height: 166px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+}
+.earnings-card:hover {
+  border-color: var(--primary);
+  box-shadow: 0 3px 10px rgba(15, 23, 42, 0.08);
+  transform: translateY(-1px);
 }
 .earnings-card-soon { border-left-color: #d97706; }
 .earnings-card-today { border-left-color: var(--down); }
 .earnings-card-tbd { opacity: 0.6; }
 [data-theme="dark"] .earnings-card-soon { border-left-color: #fbbf24; }
 .ec-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.ec-actions { display: inline-flex; align-items: center; gap: 5px; }
+.earnings-remove-btn {
+  width: 22px; height: 22px; padding: 0; border: 0; border-radius: 5px;
+  background: transparent; color: var(--text-light); cursor: pointer; font-size: 18px; line-height: 20px;
+}
+.earnings-remove-btn:hover { background: var(--down-bg); color: var(--down); }
 .ec-symbol { font-weight: 700; font-size: 14px; font-family: "SFMono-Regular", monospace; }
 .ec-stars { color: #f59e0b; font-size: 11px; letter-spacing: 1px; }
 .ec-name { font-weight: 600; font-size: 13px; margin-top: 2px; }
@@ -500,6 +519,7 @@ body {
 .ec-countdown-soon { color: #d97706; font-weight: 600; }
 .ec-countdown-today { color: var(--down); font-weight: 700; }
 [data-theme="dark"] .ec-countdown-soon { color: #fbbf24; }
+[data-theme="dark"] .earnings-card:hover { box-shadow: 0 3px 12px rgba(0, 0, 0, 0.24); }
 .ec-period { font-size: 12px; color: var(--text-muted); }
 .ec-est {
   font-size: 12px;
@@ -1536,12 +1556,17 @@ body {
   .stats-row { grid-template-columns: 1fr 1fr; }
   .chart-container { height: 250px; }
   .market-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 12px; }
+  .earnings-grid-wrap { padding: 12px; }
   .framework-summary-grid,
   .framework-grid { grid-template-columns: 1fr; }
   .framework-account-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .leverage-scale { grid-template-columns: repeat(3, minmax(0, 1fr)); row-gap: 14px; }
   .leverage-scale-line { display: none; }
   .leverage-marker { display: none; }
+}
+
+@media (max-width: 420px) {
+  .earnings-grid { grid-template-columns: 1fr; }
 }
 
 /* 财报营收实际标记 */
