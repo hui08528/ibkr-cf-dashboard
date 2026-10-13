@@ -685,6 +685,8 @@ function renderQuoteCard(quote) {
   const available = quote.available && quote.price;
   const change = number(quote.change);
   const pct = number(quote.changePercent);
+  const chg5 = quote.chg5 === null || quote.chg5 === undefined ? null : number(quote.chg5);
+  const chg5Up = chg5 !== null && chg5 >= 0;
   const up = change >= 0;
   const hasPremium = quote.premiumRate !== null && quote.premiumRate !== undefined;
   const premium = hasPremium ? number(quote.premiumRate) : null;
@@ -744,6 +746,7 @@ function renderQuoteCard(quote) {
       <div class="market-change ${effAvailable ? (effUp ? "up" : "down") : "market-unavailable"}" data-live-class="${sym}">
         ${effAvailable ? `<span class="field-label">涨跌</span><span class="change-tip" title="${changeTip}" data-live-change="${sym}">${effUp ? "+" : ""}${effChange.toFixed(2)} (${effUp ? "+" : ""}${effPct.toFixed(2)}%)</span>` : marketErrorLabel(quote.error)}
       </div>
+      ${!hasPremium && chg5 !== null ? `<div class="market-chg5 ${chg5Up ? "up" : "down"}"><span class="field-label">5日</span>${chg5Up ? "+" : ""}${chg5.toFixed(2)}%</div>` : ""}
       ${liqBlock}
       ${premiumBlock}
       ${riskBadge}

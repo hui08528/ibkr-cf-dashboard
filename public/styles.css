@@ -804,6 +804,16 @@ body {
 .market-change.down { color: var(--down); }
 .market-unavailable { color: var(--text-muted); }
 
+/* 近5个交易日涨跌（美股卡，涨跌行下方） */
+.market-chg5 {
+  margin-top: 5px;
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 12px;
+  font-weight: 600;
+}
+.market-chg5.up { color: var(--up); }
+.market-chg5.down { color: var(--down); }
+
 /* 行内字段说明标签（现价 / 涨跌）*/
 .field-label {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;

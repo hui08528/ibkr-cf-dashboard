@@ -1,4 +1,4 @@
-import { fetchQuote as fetchLongbridgeQuote, isLongbridgeConfigured } from "./lib/longbridge.js";
+import { fetchQuote as fetchLongbridgeQuote, fetchDailyCandlesticks, isLongbridgeConfigured } from "./lib/longbridge.js";
 import { fetchQdiiPremium } from "./lib/cn-premium.js";
 
 const ALPHA_VANTAGE_URL = "https://www.alphavantage.co/query";
@@ -94,6 +94,16 @@ async function loadGroup(instruments, state, qdii = false) {
 }
 
 // 长桥主源 → Alpha Vantage 兜底；qdii 标的补溢价率（现价 ÷ 最新单位净值）
+// 近 5 个交易日涨跌幅：现价 ÷ 5 根日K前收盘 − 1；K 线不足 6 根返回 null
+async function fetchChg5(code, price) {
+  if (!price || price <= 0) return null;
+  const bars = await fetchDailyCandlesticks(code, 10);
+  if (!bars || bars.length < 6) return null;
+  const closes = bars.map((b) => Number(b.close)).filter(Number.isFinite);
+  if (closes.length < 6) return null;
+  return Math.round((price / closes.at(-6) - 1) * 10000) / 100;
+}
+
 async function loadQuote(instrument, state, qdii = false) {
   const { lbConfigured, apiKey, avCalls } = state;
   if (lbConfigured) {
@@ -110,7 +120,9 @@ async function loadQuote(instrument, state, qdii = false) {
           }));
           return { ...lbQuote, ...prem };
         }
-        return lbQuote;
+        // 美股：附加近 5 个交易日涨跌幅（页面卡片展示；K 线不足/失败返回 null，前端显示 -）
+        const chg5 = await fetchChg5(instrument.longbridgeSymbol || instrument.symbol, lbQuote.price).catch(() => null);
+        return { ...lbQuote, chg5 };
       }
       if (!apiKey) return lbQuote; // 无 AV key：保留长桥的错误信息
     } else if (!apiKey) {

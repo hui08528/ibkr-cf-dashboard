@@ -108,7 +108,8 @@ async function buildUsRows() {
     const prevClose = Number(latest?.previousClose);
     const changePct = livePrice && prevClose ? (livePrice / prevClose - 1) * 100 : null;
 
-    // 日K：一年高点回撤 + 200 日线（失败不致命，只缺这两个派生项）
+    // 日K：近5交易日涨跌 + 一年高点回撤 + 200 日线（失败不致命，只缺这几个派生项）
+    let chg5 = null;
     let dd = null;
     let vsSma200 = null;
     let tradeDate = "";
@@ -117,6 +118,7 @@ async function buildUsRows() {
       if (bars?.length) {
         const closes = bars.map((b) => Number(b.close)).filter(Number.isFinite);
         const last = Number(livePrice) || closes.at(-1);
+        if (closes.length >= 6) chg5 = (last / closes.at(-6) - 1) * 100;
         const peak = Math.max(...closes);
         if (peak > 0) dd = (last / peak - 1) * 100;
         const line = sma(closes, 200);
@@ -127,7 +129,7 @@ async function buildUsRows() {
       // 日K失败保留价格行
     }
 
-    rows.push({ ...meta, price: livePrice || null, changePct, dd, vsSma200, tradeDate });
+    rows.push({ ...meta, price: livePrice || null, changePct, chg5, dd, vsSma200, tradeDate });
   }
   return rows;
 }
@@ -186,6 +188,7 @@ function renderUs(rows, tradeDate, sentiment) {
       continue;
     }
     const extras = [];
+    if (r.chg5 !== null) extras.push(`5日 ${r.chg5 >= 0 ? "+" : ""}${r.chg5.toFixed(2)}%`);
     if (r.dd !== null) extras.push(`距高点 ${r.dd >= 0 ? "+" : ""}${r.dd.toFixed(1)}%`);
     if (r.vsSma200 !== null) extras.push(`年线${r.vsSma200 >= 0 ? "上方 +" : "下方 "}${Math.abs(r.vsSma200).toFixed(1)}%`);
     lines.push(
