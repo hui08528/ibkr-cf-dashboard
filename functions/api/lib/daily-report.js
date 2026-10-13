@@ -321,15 +321,23 @@ function buildPremiumAdvice(quotes, heldSymbols, params) {
     );
   }
 
-  // 2️⃣ 持有 / 3️⃣ 换仓（仅针对实际持仓）
+  // 2️⃣ 持有 / 3️⃣ 换仓·止盈（仅针对实际持仓）
   const hold = [];
   const switchList = [];
-  for (const rows of grouped.values()) {
+  const ndxMinForCross = (grouped.get("NDX") || [])[0];
+  for (const [group, rows] of grouped) {
     const min = rows[0];
     for (const item of rows) {
       if (!heldSymbols.has(item.q.symbol)) continue;
-      if (item.q.symbol === min.q.symbol) {
-        if (min.premium < expensive) hold.push(`${ref(item)} ${pctText(item.premium)}，组内最低无需换仓`);
+      if (item.premium >= expensive) {
+        // 持仓本身已极端溢价（如独苗组 159509）：分批止盈；纳指100 组有明显更便宜的同类时给出跨组切换目标
+        const cross =
+          group !== "NDX" && ndxMinForCross && item.premium - ndxMinForCross.premium >= SWITCH_GAP
+            ? `；或换入同类低溢价 ${ref(ndxMinForCross)} ${pctText(ndxMinForCross.premium)}`
+            : "";
+        switchList.push(`🎯 ${ref(item)} ${pctText(item.premium)} 处极端溢价，可考虑分批止盈${cross}`);
+      } else if (item.q.symbol === min.q.symbol) {
+        hold.push(`${ref(item)} ${pctText(item.premium)}，组内最低无需换仓`);
       } else if (item.premium > fair && item.premium - min.premium >= SWITCH_GAP) {
         switchList.push(`${ref(item)} ${pctText(item.premium)} → ${ref(min)} ${pctText(min.premium)}，省 ${(item.premium - min.premium).toFixed(2)}pp`);
       }
@@ -371,7 +379,7 @@ function buildPremiumAdvice(quotes, heldSymbols, params) {
   return [
     `1️⃣ **买入**：${buy.join("；")}`,
     `2️⃣ **持有**：${hold.length ? hold.join("；") : "无"}`,
-    `3️⃣ **换仓**：${switchList.length ? switchList.join("；") : "无"}`,
+    `3️⃣ **换仓·止盈**：${switchList.length ? switchList.join("；") : "无"}`,
     `4️⃣ **回避**：${avoid.join("　")}`,
     `5️⃣ **结论**：${conclusion}`,
   ];
