@@ -316,8 +316,8 @@ function buildPremiumAdvice(quotes, heldSymbols, params) {
     const anyMin = ndxMin || [...grouped.values()].map((r) => r[0]).sort((a, b) => a.premium - b.premium)[0];
     buy.push(
       anyMin
-        ? `暂无可买标的：组内最低 ${ref(anyMin)} 溢价 ${pctText(anyMin.premium)}，高于合理线 ${fair}%`
-        : "暂无可买标的：溢价数据不可用"
+        ? `暂无可买标的（组内最低 ${ref(anyMin)} 溢价 ${pctText(anyMin.premium)}，高于合理线 ${fair}%）`
+        : "暂无可买标的（溢价数据不可用）"
     );
   }
 
@@ -336,16 +336,18 @@ function buildPremiumAdvice(quotes, heldSymbols, params) {
     }
   }
 
-  // 4️⃣ 回避：非持仓、非组内最低，按极端/过热合并列出
+  // 4️⃣ 回避：非持仓标的按极端/过热合并列出。组内最低仅在贵到极端（≥昂贵线，
+  //    如独苗组 159509）时才列；过热但未到极端的组内最低不报回避（买入段已说明）。
   const extremeAvoid = [];
   const hotAvoid = [];
   for (const rows of grouped.values()) {
     const minSymbol = rows[0].q.symbol;
     for (const item of rows) {
-      if (item.q.symbol === minSymbol || heldSymbols.has(item.q.symbol)) continue;
+      if (heldSymbols.has(item.q.symbol)) continue;
+      const isGroupMin = item.q.symbol === minSymbol;
       const cell = `${item.q.symbol}（${pctText(item.premium)}）`;
       if (item.premium >= expensive) extremeAvoid.push(cell);
-      else if (item.premium >= top) hotAvoid.push(cell);
+      else if (item.premium >= top && !isGroupMin) hotAvoid.push(cell);
     }
   }
   const avoid = [];
