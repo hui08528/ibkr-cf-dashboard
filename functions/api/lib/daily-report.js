@@ -242,7 +242,7 @@ async function fetchCnQuotes(env) {
   return Array.isArray(body.cnQuotes) ? body.cnQuotes : [];
 }
 
-// QDII 单只标的行：现价、涨跌、溢价率、换手率，附组内最低/极端溢价打标
+// QDII 单只标的行：固定字段顺序 + 全角竖线分隔，手机端阅读对齐
 function formatCnLine(q, minPremium) {
   const premium = num(q.premiumRate);
   const turnover = num(q.turnoverRate);
@@ -253,7 +253,16 @@ function formatCnLine(q, minPremium) {
     if (premium >= 40) tags.push("🔴极端溢价");
     else if (premium >= 20) tags.push("🟠溢价偏高");
   }
-  return `- **${q.symbol}** ${q.nameCn || ""}：${q.price ?? "-"}（${fmtSigned(changePct)}）· 溢价 ${premium === null ? "-" : premium.toFixed(2) + "%"} · 换手 ${turnover === null ? "-" : turnover.toFixed(2) + "%"}${tags.length ? ` ${tags.join(" ")}` : ""}`;
+  return `- **${q.symbol}** ${shortName(q.nameCn)}　${q.price ?? "-"}（${fmtSigned(changePct)}）｜溢价 ${premium === null ? "-" : premium.toFixed(2) + "%"}｜换手 ${turnover === null ? "-" : turnover.toFixed(2) + "%"}${tags.length ? `　${tags.join(" ")}` : ""}`;
+}
+
+// 建议段用短名：去掉 (QDII)/(QDII-ETF) 等括号后缀，缩短行宽
+function shortName(name) {
+  return String(name || "").replace(/[（(][^）)]*[)）]/g, "").trim();
+}
+
+function pctText(v) {
+  return `${v.toFixed(2)}%`;
 }
 
 function renderCn(quotes, tradeDate) {
@@ -272,13 +281,14 @@ function renderCn(quotes, tradeDate) {
   return lines.join("\n");
 }
 
-// 溢价框架 → 操作建议：组内最低打买入首选，持仓给换仓提示，过热/极端溢价列回避。
+// 溢价框架 → 操作建议：固定五段（买入/持有/换仓/回避/结论），编号对齐便于阅读。
 // 阈值取自 strategy.params（premiumCheap/premiumFair/topPremium/premiumExpensive），与 rebalance 保持一致。
 function buildPremiumAdvice(quotes, heldSymbols, params) {
   const cheap = Number(params.premiumCheap) || 2;
   const fair = Number(params.premiumFair) || 5;
   const top = Number(params.topPremium) || 8;
   const expensive = Number(params.premiumExpensive) || 20;
+  const SWITCH_GAP = 3; // 高出组内最低几个百分点才提示换仓
 
   const grouped = new Map();
   for (const q of quotes) {
@@ -288,63 +298,81 @@ function buildPremiumAdvice(quotes, heldSymbols, params) {
     if (!grouped.has(group)) grouped.set(group, []);
     grouped.get(group).push({ q, premium });
   }
+  for (const rows of grouped.values()) rows.sort((a, b) => a.premium - b.premium);
 
-  const lines = [];
-  const avoid = [];
+  const ref = (s) => `**${shortName(s.q.nameCn) || s.q.symbol}（${s.q.symbol}）**`;
 
+  // 1️⃣ 买入：逐组判断组内最低所处区间
+  const buy = [];
   for (const [group, rows] of grouped) {
-    rows.sort((a, b) => a.premium - b.premium);
     const min = rows[0];
-    const groupMin = min.premium;
-    const minName = min.q.nameCn || min.q.symbol;
+    const label = group === "NDX" ? "纳指100" : group === "NDXTMC" ? "纳指科技" : group;
+    if (min.premium <= cheap) buy.push(`🟢 ${label}：${ref(min)} ${pctText(min.premium)}，便宜区可分批买入`);
+    else if (min.premium <= fair) buy.push(`🟢 ${label}：${ref(min)} ${pctText(min.premium)}，合理区可小额定投`);
+  }
+  if (!buy.length) {
+    // 以纳指100 组最低为代表说明今天为什么不买
+    const ndxMin = (grouped.get("NDX") || [])[0];
+    const anyMin = ndxMin || [...grouped.values()].map((r) => r[0]).sort((a, b) => a.premium - b.premium)[0];
+    buy.push(
+      anyMin
+        ? `暂无可买标的：组内最低 ${ref(anyMin)} 溢价 ${pctText(anyMin.premium)}，高于合理线 ${fair}%`
+        : "暂无可买标的：溢价数据不可用"
+    );
+  }
 
-    // 组内最低标的：决定「今天能不能买」的主基调
-    if (groupMin <= cheap) {
-      lines.push(`🟢 可买：**${minName}（${min.q.symbol}）** 组内最低溢价 ${groupMin.toFixed(2)}%，处便宜区（≤${cheap}%）`);
-    } else if (groupMin <= fair) {
-      lines.push(`🟢 可买：**${minName}（${min.q.symbol}）** 组内最低溢价 ${groupMin.toFixed(2)}%，处合理区（≤${fair}%）`);
-    } else if (groupMin < expensive) {
-      lines.push(`🟠 观望：${group} 组内最低也溢价 ${groupMin.toFixed(2)}%（>${fair}%），今天不建议追买`);
-    } else {
-      lines.push(`🔴 回避：**${minName}（${min.q.symbol}）** 溢价 ${groupMin.toFixed(2)}%，≥ 昂贵线 ${expensive}%，勿追`);
-    }
-
-    // 结合持仓：组内最低 → 继续持有；溢价高且高出组内最低 ≥3pp → 换仓
-    for (const { q, premium } of rows) {
-      if (!heldSymbols.has(q.symbol)) continue;
-      if (q.symbol === min.q.symbol) {
-        if (groupMin < expensive) lines.push(`✅ 持有 **${minName}（${min.q.symbol}）**：组内最低，无需换仓`);
-      } else if (premium > fair && premium - groupMin >= 3) {
-        lines.push(`🔄 换仓：你持有的 **${q.nameCn || q.symbol}（${q.symbol}）** 溢价 ${premium.toFixed(2)}%，高出组内最低 ${(premium - groupMin).toFixed(2)}pp，建议换到 **${minName}（${min.q.symbol}）**`);
+  // 2️⃣ 持有 / 3️⃣ 换仓（仅针对实际持仓）
+  const hold = [];
+  const switchList = [];
+  for (const rows of grouped.values()) {
+    const min = rows[0];
+    for (const item of rows) {
+      if (!heldSymbols.has(item.q.symbol)) continue;
+      if (item.q.symbol === min.q.symbol) {
+        if (min.premium < expensive) hold.push(`${ref(item)} ${pctText(item.premium)}，组内最低无需换仓`);
+      } else if (item.premium > fair && item.premium - min.premium >= SWITCH_GAP) {
+        switchList.push(`${ref(item)} ${pctText(item.premium)} → ${ref(min)} ${pctText(min.premium)}，省 ${(item.premium - min.premium).toFixed(2)}pp`);
       }
-    }
-
-    // 非组内最低、且溢价过热的其余标的 → 回避提示（已持仓的走上面的换仓行，不重复列）
-    for (const { q, premium } of rows) {
-      if (q.symbol === min.q.symbol || heldSymbols.has(q.symbol)) continue;
-      if (premium >= expensive) avoid.push(`🔴 回避：**${q.nameCn || q.symbol}（${q.symbol}）** 溢价 ${premium.toFixed(2)}%，≥ 昂贵线 ${expensive}%`);
-      else if (premium >= top) avoid.push(`⚠️ 回避：**${q.nameCn || q.symbol}（${q.symbol}）** 溢价 ${premium.toFixed(2)}%，≥ 过热线 ${top}%`);
     }
   }
 
-  lines.push(...avoid);
+  // 4️⃣ 回避：非持仓、非组内最低，按极端/过热合并列出
+  const extremeAvoid = [];
+  const hotAvoid = [];
+  for (const rows of grouped.values()) {
+    const minSymbol = rows[0].q.symbol;
+    for (const item of rows) {
+      if (item.q.symbol === minSymbol || heldSymbols.has(item.q.symbol)) continue;
+      const cell = `${item.q.symbol}（${pctText(item.premium)}）`;
+      if (item.premium >= expensive) extremeAvoid.push(cell);
+      else if (item.premium >= top) hotAvoid.push(cell);
+    }
+  }
+  const avoid = [];
+  if (extremeAvoid.length) avoid.push(`🔴 极端（≥${expensive}%）：${extremeAvoid.join("、")}`);
+  if (hotAvoid.length) avoid.push(`⚠️ 过热（≥${top}%）：${hotAvoid.join("、")}`);
+  if (!avoid.length) avoid.push("无（暂无过热/极端溢价的非持仓标的）");
 
-  // 结论：以纳指100 组为主基调 + 极端溢价点名
-  const ndxRows = (grouped.get("NDX") || []).sort((a, b) => a.premium - b.premium);
-  const overallMin = ndxRows[0];
+  // 5️⃣ 结论：以纳指100 组主基调 + 极端溢价点名
+  const overallMin = (grouped.get("NDX") || [])[0];
   const anyExtreme = [...grouped.values()].flat().some((r) => r.premium >= expensive);
   let conclusion;
   if (overallMin && overallMin.premium <= cheap) {
-    conclusion = `结论：纳指100 组内最低溢价 ${overallMin.premium.toFixed(2)}%（便宜区），可分批买入 ${overallMin.q.symbol}，勿追高溢价标的`;
+    conclusion = `${overallMin.q.symbol} 组内最低 ${pctText(overallMin.premium)}（便宜区），可分批买入，勿追高溢价标的`;
   } else if (overallMin && overallMin.premium <= fair) {
-    conclusion = `结论：纳指100 组内最低溢价 ${overallMin.premium.toFixed(2)}%（合理区），可小额定投 ${overallMin.q.symbol}`;
+    conclusion = `${overallMin.q.symbol} 组内最低 ${pctText(overallMin.premium)}（合理区），可小额定投`;
   } else {
-    conclusion = "结论：场内纳指 QDII 溢价普遍偏高，今天不建议买入，等溢价回落再入场";
+    conclusion = "场内纳指 QDII 溢价普遍偏高，今日不建议买入，等溢价回落再入场";
   }
   if (anyExtreme) conclusion += "；极端溢价标的一律不碰";
-  lines.push(`📌 ${conclusion}`);
 
-  return lines;
+  return [
+    `1️⃣ **买入**：${buy.join("；")}`,
+    `2️⃣ **持有**：${hold.length ? hold.join("；") : "无"}`,
+    `3️⃣ **换仓**：${switchList.length ? switchList.join("；") : "无"}`,
+    `4️⃣ **回避**：${avoid.join("　")}`,
+    `5️⃣ **结论**：${conclusion}`,
+  ];
 }
 
 // QDII 盘中日报（13:00 / 13:30 槽位）：同收盘日报的标的数据 + 操作建议段
