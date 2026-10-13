@@ -814,6 +814,22 @@ body {
 .market-chg5.up { color: var(--up); }
 .market-chg5.down { color: var(--down); }
 
+/* 美股补充统计（振幅/量比/股息/成交额）*/
+.market-us-stats {
+  margin-top: 5px;
+  font-size: 11px;
+  color: var(--text-muted);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+  font-variant-numeric: tabular-nums;
+}
+.market-us-stats .stat-hot {
+  color: #d97706;
+  font-weight: 600;
+}
+[data-theme="dark"] .market-us-stats .stat-hot { color: #fbbf24; }
+
 /* 行内字段说明标签（现价 / 涨跌）*/
 .field-label {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;

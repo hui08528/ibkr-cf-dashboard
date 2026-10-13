@@ -749,11 +749,42 @@ function renderQuoteCard(quote) {
       ${!hasPremium && (chg5 !== null || ytd !== null)
         ? `<div class="market-chg5">${chg5 !== null ? `<span class="${chg5Up ? "up" : "down"}" title="近5个交易日涨跌幅">5日 ${chg5Up ? "+" : ""}${chg5.toFixed(2)}%</span>` : ""}${chg5 !== null && ytd !== null ? "　" : ""}${ytd !== null ? `<span class="${ytd >= 0 ? "up" : "down"}" title="年初至今涨跌幅（YTD）">年内 ${ytd >= 0 ? "+" : ""}${ytd.toFixed(2)}%</span>` : ""}</div>`
         : ""}
+      ${!hasPremium ? usStatBlock(quote) : ""}
       ${liqBlock}
       ${premiumBlock}
       ${riskBadge}
     </div>
   `;
+}
+
+// 美股卡片补充统计：振幅（含OHLC tooltip）· 量比 · 股息率 · 成交额（美元）
+function usStatBlock(quote) {
+  const parts = [];
+  const amplitude = number(quote.amplitude);
+  if (Number.isFinite(amplitude)) {
+    const ohlc = [quote.open, quote.high, quote.low, quote.previousClose]
+      .map((v) => (v === null || v === undefined ? "-" : Number(v).toFixed(2)))
+      .join(" / ");
+    parts.push(
+      `<span class="change-tip" title="振幅=（最高-最低）÷昨收\n开/高/低/昨收：${ohlc}">振幅 ${amplitude.toFixed(2)}%</span>`
+    );
+  }
+  const volumeRatio = number(quote.volumeRatio);
+  if (Number.isFinite(volumeRatio) && volumeRatio > 0) {
+    const hot = volumeRatio >= 2;
+    parts.push(
+      `<span class="change-tip ${hot ? "stat-hot" : ""}" title="量比=今日成交量÷近期平均成交量；≥2 为明显放量">量比 ${volumeRatio.toFixed(2)}</span>`
+    );
+  }
+  const divYield = number(quote.dividendRatioTtm);
+  if (Number.isFinite(divYield) && divYield > 0) {
+    parts.push(`<span class="change-tip" title="近12个月股息率（TTM）">息 ${divYield.toFixed(2)}%</span>`);
+  }
+  const turnYi = number(quote.turnover) / 1e8;
+  if (Number.isFinite(turnYi) && turnYi > 0) {
+    parts.push(`<span class="change-tip" title="今日成交额 ${turnYi.toFixed(1)} 亿美元">成交 ${turnYi >= 100 ? turnYi.toFixed(0) : turnYi.toFixed(1)}亿$</span>`);
+  }
+  return parts.length ? `<div class="market-us-stats">${parts.join(" · ")}</div>` : "";
 }
 
 // 溢价率分级：折价 / <5%安全 / 5~15%警示 / 15~30%危险 / ≥30%极度危险
