@@ -16,6 +16,7 @@ import { fetchDailyCandlesticks, fetchQuote } from "./longbridge.js";
 import { sendToDingtalk } from "./dingtalk.js";
 import { onRequestGet as marketHandler } from "../market.js";
 import { onRequestGet as fearGreedHandler } from "../fear-greed.js";
+import { loadStrategy } from "./strategy-store.js";
 
 const US_SYMBOLS = [
   { symbol: "QQQ", name: "纳指100" },
@@ -39,9 +40,14 @@ function stateFile(env) {
 function loadState(env) {
   try {
     const parsed = JSON.parse(fs.readFileSync(stateFile(env), "utf8"));
-    return { usDate: parsed.usDate || "", cnDate: parsed.cnDate || "" };
+    return {
+      usDate: parsed.usDate || "",
+      cnDate: parsed.cnDate || "",
+      cnIntraday1300: parsed.cnIntraday1300 || "",
+      cnIntraday1330: parsed.cnIntraday1330 || "",
+    };
   } catch {
-    return { usDate: "", cnDate: "" };
+    return { usDate: "", cnDate: "", cnIntraday1300: "", cnIntraday1330: "" };
   }
 }
 
@@ -81,6 +87,10 @@ function fmtSigned(value, digits = 2) {
   const n = Number(value);
   if (!Number.isFinite(n)) return "-";
   return `${n >= 0 ? "+" : ""}${n.toFixed(digits)}%`;
+}
+
+function num(value) {
+  return Number.isFinite(Number(value)) ? Number(value) : null;
 }
 
 function sma(closes, n) {
@@ -232,31 +242,130 @@ async function fetchCnQuotes(env) {
   return Array.isArray(body.cnQuotes) ? body.cnQuotes : [];
 }
 
+// QDII 单只标的行：现价、涨跌、溢价率、换手率，附组内最低/极端溢价打标
+function formatCnLine(q, minPremium) {
+  const premium = num(q.premiumRate);
+  const turnover = num(q.turnoverRate);
+  const changePct = num(q.changePercent);
+  const tags = [];
+  if (premium !== null && minPremium !== null && q.premiumGroup === "NDX" && premium === minPremium) tags.push("✅组内最低");
+  if (q.symbol === "159509" && premium !== null) {
+    if (premium >= 40) tags.push("🔴极端溢价");
+    else if (premium >= 20) tags.push("🟠溢价偏高");
+  }
+  return `- **${q.symbol}** ${q.nameCn || ""}：${q.price ?? "-"}（${fmtSigned(changePct)}）· 溢价 ${premium === null ? "-" : premium.toFixed(2) + "%"} · 换手 ${turnover === null ? "-" : turnover.toFixed(2) + "%"}${tags.length ? ` ${tags.join(" ")}` : ""}`;
+}
+
 function renderCn(quotes, tradeDate) {
-  const num = (v) => (Number.isFinite(Number(v)) ? Number(v) : null);
   const ndx = quotes.filter((q) => q.premiumGroup === "NDX").filter((q) => num(q.premiumRate) !== null);
   const minPremium = ndx.length ? Math.min(...ndx.map((q) => num(q.premiumRate))) : null;
-
-  const line = (q) => {
-    const premium = num(q.premiumRate);
-    const turnover = num(q.turnoverRate);
-    const changePct = num(q.changePercent);
-    const tags = [];
-    if (premium !== null && minPremium !== null && q.premiumGroup === "NDX" && premium === minPremium) tags.push("✅组内最低");
-    if (q.symbol === "159509" && premium !== null) {
-      if (premium >= 40) tags.push("🔴极端溢价");
-      else if (premium >= 20) tags.push("🟠溢价偏高");
-    }
-    return `- **${q.symbol}** ${q.nameCn || ""}：${q.price ?? "-"}（${fmtSigned(changePct)}）· 溢价 ${premium === null ? "-" : premium.toFixed(2) + "%"} · 换手 ${turnover === null ? "-" : turnover.toFixed(2) + "%"}${tags.length ? ` ${tags.join(" ")}` : ""}`;
-  };
 
   const tech = quotes.filter((q) => q.symbol === "159509");
   const ndxSorted = [...ndx].sort((a, b) => num(a.premiumRate) - num(b.premiumRate));
 
   const lines = [`### 📊 QDII 收盘日报（${tradeDate}）`, "**纳指科技（NDXTMC）**"];
-  for (const q of tech) lines.push(line(q));
+  for (const q of tech) lines.push(formatCnLine(q, minPremium));
+  lines.push(""); // 空行断开钉钉 markdown 列表延续，让组标题单独成行
   lines.push("**纳指100（NDX）**");
-  for (const q of ndxSorted) lines.push(line(q));
+  for (const q of ndxSorted) lines.push(formatCnLine(q, minPremium));
+  lines.push(`> 推送时间：${bjLabel()}（北京时间）`);
+  return lines.join("\n");
+}
+
+// 溢价框架 → 操作建议：组内最低打买入首选，持仓给换仓提示，过热/极端溢价列回避。
+// 阈值取自 strategy.params（premiumCheap/premiumFair/topPremium/premiumExpensive），与 rebalance 保持一致。
+function buildPremiumAdvice(quotes, heldSymbols, params) {
+  const cheap = Number(params.premiumCheap) || 2;
+  const fair = Number(params.premiumFair) || 5;
+  const top = Number(params.topPremium) || 8;
+  const expensive = Number(params.premiumExpensive) || 20;
+
+  const grouped = new Map();
+  for (const q of quotes) {
+    const premium = num(q.premiumRate);
+    if (premium === null) continue;
+    const group = q.premiumGroup || "其他";
+    if (!grouped.has(group)) grouped.set(group, []);
+    grouped.get(group).push({ q, premium });
+  }
+
+  const lines = [];
+  const avoid = [];
+
+  for (const [group, rows] of grouped) {
+    rows.sort((a, b) => a.premium - b.premium);
+    const min = rows[0];
+    const groupMin = min.premium;
+    const minName = min.q.nameCn || min.q.symbol;
+
+    // 组内最低标的：决定「今天能不能买」的主基调
+    if (groupMin <= cheap) {
+      lines.push(`🟢 可买：**${minName}（${min.q.symbol}）** 组内最低溢价 ${groupMin.toFixed(2)}%，处便宜区（≤${cheap}%）`);
+    } else if (groupMin <= fair) {
+      lines.push(`🟢 可买：**${minName}（${min.q.symbol}）** 组内最低溢价 ${groupMin.toFixed(2)}%，处合理区（≤${fair}%）`);
+    } else if (groupMin < expensive) {
+      lines.push(`🟠 观望：${group} 组内最低也溢价 ${groupMin.toFixed(2)}%（>${fair}%），今天不建议追买`);
+    } else {
+      lines.push(`🔴 回避：**${minName}（${min.q.symbol}）** 溢价 ${groupMin.toFixed(2)}%，≥ 昂贵线 ${expensive}%，勿追`);
+    }
+
+    // 结合持仓：组内最低 → 继续持有；溢价高且高出组内最低 ≥3pp → 换仓
+    for (const { q, premium } of rows) {
+      if (!heldSymbols.has(q.symbol)) continue;
+      if (q.symbol === min.q.symbol) {
+        if (groupMin < expensive) lines.push(`✅ 持有 **${minName}（${min.q.symbol}）**：组内最低，无需换仓`);
+      } else if (premium > fair && premium - groupMin >= 3) {
+        lines.push(`🔄 换仓：你持有的 **${q.nameCn || q.symbol}（${q.symbol}）** 溢价 ${premium.toFixed(2)}%，高出组内最低 ${(premium - groupMin).toFixed(2)}pp，建议换到 **${minName}（${min.q.symbol}）**`);
+      }
+    }
+
+    // 非组内最低、且溢价过热的其余标的 → 回避提示（已持仓的走上面的换仓行，不重复列）
+    for (const { q, premium } of rows) {
+      if (q.symbol === min.q.symbol || heldSymbols.has(q.symbol)) continue;
+      if (premium >= expensive) avoid.push(`🔴 回避：**${q.nameCn || q.symbol}（${q.symbol}）** 溢价 ${premium.toFixed(2)}%，≥ 昂贵线 ${expensive}%`);
+      else if (premium >= top) avoid.push(`⚠️ 回避：**${q.nameCn || q.symbol}（${q.symbol}）** 溢价 ${premium.toFixed(2)}%，≥ 过热线 ${top}%`);
+    }
+  }
+
+  lines.push(...avoid);
+
+  // 结论：以纳指100 组为主基调 + 极端溢价点名
+  const ndxRows = (grouped.get("NDX") || []).sort((a, b) => a.premium - b.premium);
+  const overallMin = ndxRows[0];
+  const anyExtreme = [...grouped.values()].flat().some((r) => r.premium >= expensive);
+  let conclusion;
+  if (overallMin && overallMin.premium <= cheap) {
+    conclusion = `结论：纳指100 组内最低溢价 ${overallMin.premium.toFixed(2)}%（便宜区），可分批买入 ${overallMin.q.symbol}，勿追高溢价标的`;
+  } else if (overallMin && overallMin.premium <= fair) {
+    conclusion = `结论：纳指100 组内最低溢价 ${overallMin.premium.toFixed(2)}%（合理区），可小额定投 ${overallMin.q.symbol}`;
+  } else {
+    conclusion = "结论：场内纳指 QDII 溢价普遍偏高，今天不建议买入，等溢价回落再入场";
+  }
+  if (anyExtreme) conclusion += "；极端溢价标的一律不碰";
+  lines.push(`📌 ${conclusion}`);
+
+  return lines;
+}
+
+// QDII 盘中日报（13:00 / 13:30 槽位）：同收盘日报的标的数据 + 操作建议段
+export function renderCnIntraday(quotes, tradeDate, slot, env = process.env) {
+  const label = slot === "1330" ? "13:30" : "13:00";
+  const ndx = quotes.filter((q) => q.premiumGroup === "NDX").filter((q) => num(q.premiumRate) !== null);
+  const minPremium = ndx.length ? Math.min(...ndx.map((q) => num(q.premiumRate))) : null;
+  const tech = quotes.filter((q) => q.symbol === "159509");
+  const ndxSorted = [...ndx].sort((a, b) => num(a.premiumRate) - num(b.premiumRate));
+
+  const strategy = loadStrategy(env);
+  const held = new Set((strategy.manualPositions || []).map((p) => p.symbol));
+
+  const lines = [`### 📊 QDII 盘中日报（${tradeDate} · ${label}）`, "**纳指科技（NDXTMC）**"];
+  for (const q of tech) lines.push(formatCnLine(q, minPremium));
+  lines.push(""); // 空行断开钉钉 markdown 列表延续，让组标题单独成行
+  lines.push("**纳指100（NDX）**");
+  for (const q of ndxSorted) lines.push(formatCnLine(q, minPremium));
+  lines.push(""); // 空行断开列表延续
+  lines.push("**操作建议（纳指框架·溢价）**");
+  lines.push(...buildPremiumAdvice(quotes, held, strategy.params));
   lines.push(`> 推送时间：${bjLabel()}（北京时间）`);
   return lines.join("\n");
 }
@@ -280,6 +389,37 @@ async function maybeCn(state, env) {
   return { sent: sent.ok, tradeDate, errors: sent.errors };
 }
 
+// —— QDII 盘中日报 ——
+// 13:00 / 13:30 各推一次，窗口留几十秒冗余防调度抖动；按 tradeDate 去重（休市日天然跳过）。
+const CN_INTRADAY_SLOTS = {
+  "1300": { min: 1258, max: 1305, key: "cnIntraday1300", title: "📊 QDII盘中日报（13:00）" },
+  "1330": { min: 1328, max: 1335, key: "cnIntraday1330", title: "📊 QDII盘中日报（13:30）" },
+};
+
+async function maybeCnIntraday(state, env, slot) {
+  if (String(env.CN_INTRADAY_ENABLED ?? "true").toLowerCase() === "false") {
+    return { sent: false, reason: "CN_INTRADAY_ENABLED=false" };
+  }
+  const conf = CN_INTRADAY_SLOTS[slot];
+  if (!conf) return { sent: false, reason: `unknown-slot:${slot}` };
+
+  const now = new Date();
+  const bj = tzParts(now, BJ_TZ);
+  const hm = bj.hour * 100 + bj.minute;
+  if (hm < conf.min || hm > conf.max) return { sent: false, reason: "out-of-window" };
+
+  const quotes = await fetchCnQuotes(env);
+  const tradeDate = quotes.map((q) => q.tradingDay).filter(Boolean).sort().at(-1) || tzDate(now, BJ_TZ);
+  if (!tradeDate || state[conf.key] === tradeDate) return { sent: false, reason: "already-sent" };
+
+  const sent = await sendToDingtalk(renderCnIntraday(quotes, tradeDate, slot, env), conf.title, env);
+  if (sent.ok) {
+    state[conf.key] = tradeDate;
+    saveState(state, env);
+  }
+  return { sent: sent.ok, tradeDate, slot, errors: sent.errors };
+}
+
 // —— 调度入口 / 手动触发 ——
 
 export async function maybeDailyReports(env = process.env) {
@@ -287,14 +427,16 @@ export async function maybeDailyReports(env = process.env) {
     return { enabled: false };
   }
   const state = loadState(env);
-  const [us, cn] = await Promise.all([
+  const [us, cn, cnIntraday1300, cnIntraday1330] = await Promise.all([
     maybeUs(state, env).catch((error) => ({ sent: false, reason: error.message })),
     maybeCn(state, env).catch((error) => ({ sent: false, reason: error.message })),
+    maybeCnIntraday(state, env, "1300").catch((error) => ({ sent: false, reason: error.message })),
+    maybeCnIntraday(state, env, "1330").catch((error) => ({ sent: false, reason: error.message })),
   ]);
-  return { enabled: true, us, cn };
+  return { enabled: true, us, cn, cnIntraday1300, cnIntraday1330 };
 }
 
-// 手动/测试：忽略窗口与去重，立即生成并推送；kind: "us" | "cn"
+// 手动/测试：忽略窗口与去重，立即生成并推送；kind: "us" | "cn" | "cn-1300" | "cn-1330"
 export async function forceReport(kind, env = process.env) {
   if (kind === "us") {
     const [rows, sentiment] = await Promise.all([buildUsRows(), buildSentiment(env)]);
@@ -303,8 +445,14 @@ export async function forceReport(kind, env = process.env) {
     const sent = await sendToDingtalk(content, "📊 美股收盘日报", env);
     return { kind, tradeDate, sent, preview: content };
   }
+  const slot = kind === "cn-1300" ? "1300" : kind === "cn-1330" ? "1330" : null;
   const quotes = await fetchCnQuotes(env);
   const tradeDate = quotes.map((q) => q.tradingDay).filter(Boolean).sort().at(-1) || tzDate(new Date(), BJ_TZ);
+  if (slot) {
+    const content = renderCnIntraday(quotes, tradeDate, slot, env);
+    const sent = await sendToDingtalk(content, CN_INTRADAY_SLOTS[slot].title, env);
+    return { kind, tradeDate, sent, preview: content };
+  }
   const content = renderCn(quotes, tradeDate);
   const sent = await sendToDingtalk(content, "📊 QDII收盘日报", env);
   return { kind, tradeDate, sent, preview: content };

@@ -102,9 +102,10 @@ app.put("/api/alerts/:id", express.json({ limit: "32kb" }), (req, res) => update
 app.delete("/api/alerts/:id", (req, res) => deleteAlert(req, res, process.env));
 app.post("/api/alerts/:id/test", (req, res) => testAlertEndpoint(req, res, process.env));
 
-// 收盘日报手动触发（验证用）：POST /api/reports/run?kind=us|cn，忽略窗口与去重立即推送
+// 收盘日报手动触发（验证用）：POST /api/reports/run?kind=us|cn|cn-1300|cn-1330，忽略窗口与去重立即推送
 app.post("/api/reports/run", async (req, res) => {
-  const kind = String(req.query.kind || "cn") === "us" ? "us" : "cn";
+  const raw = String(req.query.kind || "cn");
+  const kind = ["us", "cn", "cn-1300", "cn-1330"].includes(raw) ? raw : "cn";
   try {
     const outcome = await forceReport(kind, process.env);
     res.status(outcome.sent?.ok ? 200 : 502).json(outcome);
@@ -172,6 +173,8 @@ function startReportScheduler(env) {
       const result = await maybeDailyReports(env);
       if (result.us?.sent) console.log(`[reports] 美股收盘日报已推送 ${result.us.tradeDate}`);
       if (result.cn?.sent) console.log(`[reports] QDII 收盘日报已推送 ${result.cn.tradeDate}`);
+      if (result.cnIntraday1300?.sent) console.log(`[reports] QDII 盘中日报 13:00 已推送 ${result.cnIntraday1300.tradeDate}`);
+      if (result.cnIntraday1330?.sent) console.log(`[reports] QDII 盘中日报 13:30 已推送 ${result.cnIntraday1330.tradeDate}`);
     } catch (error) {
       console.error(`[reports] 日报周期异常: ${error.message}`);
     }
