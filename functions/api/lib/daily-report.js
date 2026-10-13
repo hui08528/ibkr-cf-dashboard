@@ -376,13 +376,13 @@ function buildPremiumAdvice(quotes, heldSymbols, params) {
   }
   if (anyExtreme) conclusion += "；极端溢价标的一律不碰";
 
-  // 用带圈数字（单字符，钉钉渲染稳定），不用 1️⃣ keycap 组合 emoji（数字会被钉钉吞掉）
+  // 图标式分段：用带 U+FE0F 的标准 emoji（钉钉彩色渲染稳定）
   return [
-    `- **① 买入**：${buy.join("；")}`,
-    `- **② 持有**：${hold.length ? hold.join("；") : "无"}`,
-    `- **③ 换仓·止盈**：${switchList.length ? switchList.join("；") : "无"}`,
-    `- **④ 回避**：${avoid.join("　")}`,
-    `- **⑤ 结论**：${conclusion}`,
+    `- 🟢 **买入**：${buy.join("；")}`,
+    `- ✅ **持有**：${hold.length ? hold.join("；") : "无"}`,
+    `- 🔄 **换仓·止盈**：${switchList.length ? switchList.join("；") : "无"}`,
+    `- ⚠️ **回避**：${avoid.join("　")}`,
+    `- 📌 **结论**：${conclusion}`,
   ];
 }
 
