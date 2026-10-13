@@ -113,12 +113,11 @@ async function loadQuote(instrument, state, qdii = false) {
       if (lbQuote.timeout) state.lbSkipUntil = Date.now() + 30_000;
       if (lbQuote.available) {
         if (qdii) {
-          const prem = await fetchQdiiPremium(instrument.symbol, lbQuote.price).catch(() => ({
-            premiumRate: null,
-            nav: null,
-            navDate: "",
-          }));
-          return { ...lbQuote, ...prem };
+          const [prem, chg5] = await Promise.all([
+            fetchQdiiPremium(instrument.symbol, lbQuote.price).catch(() => null),
+            fetchChg5(instrument.longbridgeSymbol || instrument.symbol, lbQuote.price).catch(() => null),
+          ]);
+          return { ...lbQuote, ...(prem || { premiumRate: null, nav: null, navDate: "" }), chg5 };
         }
         // 美股：附加近 5 个交易日涨跌幅（页面卡片展示；K 线不足/失败返回 null，前端显示 -）
         const chg5 = await fetchChg5(instrument.longbridgeSymbol || instrument.symbol, lbQuote.price).catch(() => null);

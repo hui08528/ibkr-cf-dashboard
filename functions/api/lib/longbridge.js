@@ -242,7 +242,7 @@ function num(value) {
 function toLongbridgeSymbol(code) {
   const s = String(code || "").trim().toUpperCase();
   if (!s) return "";
-  if (s.endsWith(".US") || s.endsWith(".HK")) return s;
+  if (s.endsWith(".US") || s.endsWith(".HK") || s.endsWith(".SZ") || s.endsWith(".SH")) return s;
   if (/^\d{4,5}$/.test(s)) return `${s.padStart(4, "0")}.HK`;
   return `${s}.US`;
 }

@@ -687,6 +687,7 @@ function renderQuoteCard(quote) {
   const pct = number(quote.changePercent);
   const chg5 = quote.chg5 === null || quote.chg5 === undefined ? null : number(quote.chg5);
   const chg5Up = chg5 !== null && chg5 >= 0;
+  const ytd = quote.ytdChangeRate === null || quote.ytdChangeRate === undefined ? null : number(quote.ytdChangeRate);
   const up = change >= 0;
   const hasPremium = quote.premiumRate !== null && quote.premiumRate !== undefined;
   const premium = hasPremium ? number(quote.premiumRate) : null;
@@ -741,12 +742,13 @@ function renderQuoteCard(quote) {
       ${riskBanner}
       <div class="market-symbol">${escapeHtml(quote.displaySymbol || sym)}</div>
       <div class="market-name">${escapeHtml(quote.nameCn || quote.name || sym)}</div>
-      <div class="market-subname">${escapeHtml(quote.name || "")}</div>
       <div class="market-price"><span class="field-label">现价</span><span class="live-dot" data-live-dot="${sym}" data-on="${live ? "1" : "0"}"></span>${effAvailable ? `<span data-live-price="${sym}">${formatPlainPrice(effPrice)}</span>` : "暂无数据"}</div>
       <div class="market-change ${effAvailable ? (effUp ? "up" : "down") : "market-unavailable"}" data-live-class="${sym}">
         ${effAvailable ? `<span class="field-label">涨跌</span><span class="change-tip" title="${changeTip}" data-live-change="${sym}">${effUp ? "+" : ""}${effChange.toFixed(2)} (${effUp ? "+" : ""}${effPct.toFixed(2)}%)</span>` : marketErrorLabel(quote.error)}
       </div>
-      ${!hasPremium && chg5 !== null ? `<div class="market-chg5 ${chg5Up ? "up" : "down"}"><span class="field-label">5日</span>${chg5Up ? "+" : ""}${chg5.toFixed(2)}%</div>` : ""}
+      ${!hasPremium && (chg5 !== null || ytd !== null)
+        ? `<div class="market-chg5">${chg5 !== null ? `<span class="${chg5Up ? "up" : "down"}" title="近5个交易日涨跌幅">5日 ${chg5Up ? "+" : ""}${chg5.toFixed(2)}%</span>` : ""}${chg5 !== null && ytd !== null ? "　" : ""}${ytd !== null ? `<span class="${ytd >= 0 ? "up" : "down"}" title="年初至今涨跌幅（YTD）">年内 ${ytd >= 0 ? "+" : ""}${ytd.toFixed(2)}%</span>` : ""}</div>`
+        : ""}
       ${liqBlock}
       ${premiumBlock}
       ${riskBadge}

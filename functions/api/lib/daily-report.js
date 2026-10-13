@@ -100,7 +100,20 @@ function sma(closes, n) {
 
 // —— 美股报告 ——
 
-async function buildUsRows() {
+async function buildUsRows(env = process.env) {
+  // 年初至今取行情快照里的长桥 CalcIndex 值（整次报告一次请求）
+  const ytdBySymbol = new Map();
+  try {
+    const resp = await marketHandler({ env, request: { url: "http://localhost/" } });
+    const body = await resp.json();
+    for (const q of body.quotes || []) {
+      const v = num(q.ytdChangeRate);
+      if (v !== null) ytdBySymbol.set(q.symbol, v);
+    }
+  } catch {
+    // 快照失败不影响报告主体
+  }
+
   const rows = [];
   for (const meta of US_SYMBOLS) {
     const latest = getLatest(meta.symbol);
@@ -129,7 +142,7 @@ async function buildUsRows() {
       // 日K失败保留价格行
     }
 
-    rows.push({ ...meta, price: livePrice || null, changePct, chg5, dd, vsSma200, tradeDate });
+    rows.push({ ...meta, price: livePrice || null, changePct, chg5, ytd: ytdBySymbol.get(meta.symbol) ?? null, dd, vsSma200, tradeDate });
   }
   return rows;
 }
@@ -189,6 +202,7 @@ function renderUs(rows, tradeDate, sentiment) {
     }
     const extras = [];
     if (r.chg5 !== null) extras.push(`5日 ${r.chg5 >= 0 ? "+" : ""}${r.chg5.toFixed(2)}%`);
+    if (r.ytd !== null && r.ytd !== undefined) extras.push(`年内 ${r.ytd >= 0 ? "+" : ""}${r.ytd.toFixed(2)}%`);
     if (r.dd !== null) extras.push(`距高点 ${r.dd >= 0 ? "+" : ""}${r.dd.toFixed(1)}%`);
     if (r.vsSma200 !== null) extras.push(`年线${r.vsSma200 >= 0 ? "上方 +" : "下方 "}${Math.abs(r.vsSma200).toFixed(1)}%`);
     lines.push(
@@ -220,7 +234,7 @@ async function maybeUs(state, env) {
   const hm = bj.hour * 100 + bj.minute;
   if (hm < 405 || hm > 630) return { sent: false, reason: "out-of-window" };
 
-  const [rows, sentiment] = await Promise.all([buildUsRows(), buildSentiment(env)]);
+  const [rows, sentiment] = await Promise.all([buildUsRows(env), buildSentiment(env)]);
   const dated = rows.filter((r) => r.tradeDate);
   const tradeDate = tzDate(now, US_TZ);
   if (state.usDate === tradeDate) return { sent: false, reason: "already-sent" };
@@ -250,13 +264,18 @@ function formatCnLine(q, minPremium) {
   const premium = num(q.premiumRate);
   const turnover = num(q.turnoverRate);
   const changePct = num(q.changePercent);
+  const chg5 = num(q.chg5);
+  const ytd = num(q.ytdChangeRate);
   const tags = [];
   if (premium !== null && minPremium !== null && q.premiumGroup === "NDX" && premium === minPremium) tags.push("✅组内最低");
   if (q.symbol === "159509" && premium !== null) {
     if (premium >= 40) tags.push("🔴极端溢价");
     else if (premium >= 20) tags.push("🟠溢价偏高");
   }
-  return `- **${q.symbol}** ${shortName(q.nameCn)}　${q.price ?? "-"}（${fmtSigned(changePct)}）｜溢价 ${premium === null ? "-" : premium.toFixed(2) + "%"}｜换手 ${turnover === null ? "-" : turnover.toFixed(2) + "%"}${tags.length ? `　${tags.join(" ")}` : ""}`;
+  const trend = chg5 !== null || ytd !== null
+    ? `｜${chg5 !== null ? `5日 ${fmtSigned(chg5)}` : ""}${chg5 !== null && ytd !== null ? " " : ""}${ytd !== null ? `年内 ${fmtSigned(ytd)}` : ""}`
+    : "";
+  return `- **${q.symbol}** ${shortName(q.nameCn)}　${q.price ?? "-"}（${fmtSigned(changePct)}）｜溢价 ${premium === null ? "-" : premium.toFixed(2) + "%"}｜换手 ${turnover === null ? "-" : turnover.toFixed(2) + "%"}${trend}${tags.length ? `　${tags.join(" ")}` : ""}`;
 }
 
 // 建议段用短名：去掉 (QDII)/(QDII-ETF) 等括号后缀，缩短行宽
@@ -481,7 +500,7 @@ export async function maybeDailyReports(env = process.env) {
 // 手动/测试：忽略窗口与去重，立即生成并推送；kind: "us" | "cn" | "cn-1300" | "cn-1330"
 export async function forceReport(kind, env = process.env) {
   if (kind === "us") {
-    const [rows, sentiment] = await Promise.all([buildUsRows(), buildSentiment(env)]);
+    const [rows, sentiment] = await Promise.all([buildUsRows(env), buildSentiment(env)]);
     const tradeDate = rows.find((r) => r.tradeDate)?.tradeDate || tzDate(new Date(), US_TZ);
     const content = renderUs(rows, tradeDate, sentiment);
     const sent = await sendToDingtalk(content, "📊 美股收盘日报", env);
