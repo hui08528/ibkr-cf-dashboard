@@ -187,8 +187,20 @@ async function getEarningsForSymbols(symbols, options) {
     }
   };
 
+  // 长桥过去 N 天事件池（单日接口+进程缓存）：Finnhub 已滚动到下季度时，
+  // 用它恢复"刚发布的实际值"；也供 Finnhub 未命中的标的复用。
+  let pastEvents = [];
+  if (lbReady) {
+    for (let i = 1; i <= lookbackDays; i += 1) {
+      const d = new Date();
+      d.setUTCDate(d.getUTCDate() - i);
+      const dayEvents = await getLbDayEvents(isoDate(d)).catch(() => []);
+      pastEvents.push(...dayEvents);
+    }
+  }
+
   // 0) Finnhub：美股标的优先（财报期 + 预估EPS + 预估营收）。
-  //    批量按月开窗、批内共享；未命中/异常不中断，归入 lbUnresolved 走长桥/AV。
+  //    批量按月开窗、批内共享；但若长桥回看窗口内已有"刚发布"事件，以已发布为准。
   let lbUnresolved = missing;
   if (finnhubKey) {
     const usSymbols = missing.filter(isUsSymbol);
@@ -196,6 +208,14 @@ async function getEarningsForSymbols(symbols, options) {
     try {
       const found = await fetchFinnhubEarnings(usSymbols, finnhubKey);
       for (const [symbol, value] of found) {
+        const justReported = findReportedLbEvent(pastEvents, symbol, lookbackDays);
+        if (justReported) {
+          // Finnhub 已滚动到下季度，但最近 N 天内有实际财报 → 优先展示已发布
+          const finalized = assembleLbValue(symbol, justReported, snapshot[symbol], epsTol, revTol);
+          cachedBySymbol.set(symbol, { value: finalized, cachedAt: Date.now() });
+          results[symbol] = finalized;
+          continue;
+        }
         const finalized = finalizeRow(value, epsTol, revTol);
         cachedBySymbol.set(symbol, { value: finalized, cachedAt: Date.now() });
         results[symbol] = finalized;
@@ -212,22 +232,13 @@ async function getEarningsForSymbols(symbols, options) {
     return results;
   }
 
-  // 1) 长桥：今天事件（含盘前已发布的实际值）+ 过去 lookbackDays 天的已发布事件。
+  // 1) 长桥：今天事件（含盘前已发布的实际值）+ 回看窗口内的已发布事件。
   if (lbReady) {
     // 今天（HORIZON 窗口实测只返回 start 当天）
     const todayEvents = await getLongbridgeEvents(forceRefresh, cacheTtlMs).catch((error) => {
       console.warn(`[earnings] 长桥今日日历失败，回退 AV: ${error.message}`);
       return null;
     });
-    // 过去 N 天逐日查（单日接口+进程缓存），合并成已发布事件池
-    const pastEvents = [];
-    for (let i = 1; i <= lookbackDays; i += 1) {
-      const d = new Date();
-      d.setUTCDate(d.getUTCDate() - i);
-      const dayStr = isoDate(d);
-      const dayEvents = await getLbDayEvents(dayStr).catch(() => []);
-      pastEvents.push(...dayEvents);
-    }
 
     if (todayEvents || pastEvents.length) {
       const stillUnresolved = [];
