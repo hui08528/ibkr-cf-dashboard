@@ -267,3 +267,4 @@ turnoverRate
 - `PREMIUM_TOKEN` 和 `CN_PREMIUM_API_TOKEN` 不要提交到 Git。
 - 如果 Token 泄露，应先在腾讯云函数环境变量中更换，再同步更新 VPS 的 `.env`。
 - 云函数只负责国内 QDII 数据，Longbridge、IBKR、CNN、OKX 等请求仍由东京 VPS 直接访问。
+- 另提供 `/futures?codes=NQ,ES` 端点：服务端在国内抓取新浪外盘期货（`hf_NQ` 纳斯达克指数期货、`hf_ES` 标普500指数期货），返回最新价、昨结、涨跌、涨跌幅、高低与报价时间（白名单仅 NQ/ES/YM/RTY/CL）。东京 VPS 直连新浪 403，故经此中转；QDII 盘中/收盘日报的「美股期指（先行指引）」段使用该端点。新浪不覆盖微型合约 MNQ。
