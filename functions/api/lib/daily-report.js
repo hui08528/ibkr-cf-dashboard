@@ -17,6 +17,7 @@ import { sendToDingtalk } from "./dingtalk.js";
 import { onRequestGet as marketHandler } from "../market.js";
 import { onRequestGet as fearGreedHandler } from "../fear-greed.js";
 import { loadStrategy } from "./strategy-store.js";
+import { fetchFutures } from "./cn-futures.js";
 
 const US_SYMBOLS = [
   { symbol: "QQQ", name: "纳指100" },
@@ -289,7 +290,29 @@ function pctText(v) {
   return `${v.toFixed(2)}%`;
 }
 
-function renderCn(quotes, tradeDate) {
+// 美股期指夜盘指引（NQ/ES）：CME 近 24h 交易，A 股盘中即可看到当晚美股先行方向
+function renderFutures(futures) {
+  if (!futures) return [];
+  const lines = [];
+  const nq = futures.NQ;
+  const es = futures.ES;
+  const one = (f, label) => {
+    if (!f || !Number.isFinite(Number(f.price))) return "";
+    const pct = Number(f.changePct);
+    const sign = pct > 0 ? "🔴" : pct < 0 ? "🟢" : "⚪"; // 美股红涨绿跌
+    return `${label} ${Number(f.price).toLocaleString("en-US", { maximumFractionDigits: 2 })}（${pct >= 0 ? "+" : ""}${pct.toFixed(2)}%）${f.quoteTime ? ` ${sign}` : ""}`;
+  };
+  const nqText = one(nq, "纳指期货NQ");
+  const esText = one(es, "标普期货ES");
+  if (!nqText && !esText) return [];
+  lines.push("**美股期指（先行指引）**");
+  if (nqText) lines.push(`- ${nqText}`);
+  if (esText) lines.push(`- ${esText}`);
+  if (nq?.quoteTime) lines.push(`> 期货时间 ${nq.quoteTime}（北京时间），红涨绿跌`);
+  return lines;
+}
+
+function renderCn(quotes, tradeDate, futures = null) {
   const ndx = quotes.filter((q) => q.premiumGroup === "NDX").filter((q) => num(q.premiumRate) !== null);
   const minPremium = ndx.length ? Math.min(...ndx.map((q) => num(q.premiumRate))) : null;
 
@@ -301,6 +324,8 @@ function renderCn(quotes, tradeDate) {
   lines.push(""); // 空行断开钉钉 markdown 列表延续，让组标题单独成行
   lines.push("**纳指100（NDX）**");
   for (const q of ndxSorted) lines.push(formatCnLine(q, minPremium));
+  lines.push("");
+  lines.push(...renderFutures(futures));
   lines.push(`> 推送时间：${bjLabel()}（北京时间）`);
   return lines.join("\n");
 }
@@ -411,7 +436,7 @@ function buildPremiumAdvice(quotes, heldSymbols, params) {
 }
 
 // QDII 盘中日报（13:00 / 13:30 槽位）：同收盘日报的标的数据 + 操作建议段
-export function renderCnIntraday(quotes, tradeDate, slot, env = process.env) {
+export function renderCnIntraday(quotes, tradeDate, slot, env = process.env, futures = null) {
   const label = slot === "1330" ? "13:30" : "13:00";
   const ndx = quotes.filter((q) => q.premiumGroup === "NDX").filter((q) => num(q.premiumRate) !== null);
   const minPremium = ndx.length ? Math.min(...ndx.map((q) => num(q.premiumRate))) : null;
@@ -429,6 +454,8 @@ export function renderCnIntraday(quotes, tradeDate, slot, env = process.env) {
   lines.push(""); // 空行断开列表延续
   lines.push("**操作建议（纳指框架·溢价）**");
   lines.push(...buildPremiumAdvice(quotes, held, strategy.params));
+  lines.push("");
+  lines.push(...renderFutures(futures));
   lines.push(`> 推送时间：${bjLabel()}（北京时间）`);
   return lines.join("\n");
 }
@@ -444,7 +471,8 @@ async function maybeCn(state, env) {
   const tradeDate = quotes.map((q) => q.tradingDay).filter(Boolean).sort().at(-1) || tzDate(now, BJ_TZ);
   if (!tradeDate || state.cnDate === tradeDate) return { sent: false, reason: "already-sent" };
 
-  const sent = await sendToDingtalk(renderCn(quotes, tradeDate), "📊 QDII收盘日报", env);
+  const futures = await fetchFutures(env);
+  const sent = await sendToDingtalk(renderCn(quotes, tradeDate, futures), "📊 QDII收盘日报", env);
   if (sent.ok) {
     state.cnDate = tradeDate;
     saveState(state, env);
@@ -475,7 +503,8 @@ async function maybeCnIntraday(state, env, slot) {
   const tradeDate = quotes.map((q) => q.tradingDay).filter(Boolean).sort().at(-1) || tzDate(now, BJ_TZ);
   if (!tradeDate || state[conf.key] === tradeDate) return { sent: false, reason: "already-sent" };
 
-  const sent = await sendToDingtalk(renderCnIntraday(quotes, tradeDate, slot, env), conf.title, env);
+  const futures = await fetchFutures(env);
+  const sent = await sendToDingtalk(renderCnIntraday(quotes, tradeDate, slot, env, futures), conf.title, env);
   if (sent.ok) {
     state[conf.key] = tradeDate;
     saveState(state, env);
@@ -509,14 +538,14 @@ export async function forceReport(kind, env = process.env) {
     return { kind, tradeDate, sent, preview: content };
   }
   const slot = kind === "cn-1300" ? "1300" : kind === "cn-1330" ? "1330" : null;
-  const quotes = await fetchCnQuotes(env);
+  const [quotes, futures] = await Promise.all([fetchCnQuotes(env), fetchFutures(env)]);
   const tradeDate = quotes.map((q) => q.tradingDay).filter(Boolean).sort().at(-1) || tzDate(new Date(), BJ_TZ);
   if (slot) {
-    const content = renderCnIntraday(quotes, tradeDate, slot, env);
+    const content = renderCnIntraday(quotes, tradeDate, slot, env, futures);
     const sent = await sendToDingtalk(content, CN_INTRADAY_SLOTS[slot].title, env);
     return { kind, tradeDate, sent, preview: content };
   }
-  const content = renderCn(quotes, tradeDate);
+  const content = renderCn(quotes, tradeDate, futures);
   const sent = await sendToDingtalk(content, "📊 QDII收盘日报", env);
   return { kind, tradeDate, sent, preview: content };
 }
