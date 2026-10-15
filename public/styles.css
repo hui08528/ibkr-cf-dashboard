@@ -538,6 +538,30 @@ body {
   margin-left: 4px;
 }
 
+/* 已发财报卡片 */
+.earnings-card-reported { border-left-color: var(--up); }
+.ec-reported-badge {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--up);
+  background: var(--up-bg);
+  border-radius: 4px;
+  padding: 1px 6px;
+}
+.ec-countdown-done { color: var(--text-muted); font-weight: 400; }
+.ec-beat-tag {
+  display: inline-block;
+  font-style: normal;
+  font-size: 10px;
+  border-radius: 4px;
+  padding: 0 5px;
+  margin-left: 4px;
+  white-space: nowrap;
+}
+.ec-beat-tag.ec-beat { background: var(--up-bg); color: var(--up); }
+.ec-beat-tag.ec-meet { background: var(--surface-alt); color: var(--text-muted); }
+.ec-beat-tag.ec-miss { background: var(--down-bg); color: var(--down); }
+
 .market-item {
   min-width: 0;
   padding: 14px;

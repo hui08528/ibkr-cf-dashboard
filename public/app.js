@@ -520,16 +520,41 @@ function renderInsightsTable() {
     return;
   }
 
+  const isReported = isReportedItem;
+  // 待发布在前（日期升序），已发布沉底（发布日倒序，最近的在最上）；无日期最后
   const rows = [...popularCompanies].sort((a, b) => {
-    const aDate = popularEarningsBySymbol[a.symbol]?.reportDate || "";
-    const bDate = popularEarningsBySymbol[b.symbol]?.reportDate || "";
+    const ai = popularEarningsBySymbol[a.symbol] || {};
+    const bi = popularEarningsBySymbol[b.symbol] || {};
+    const aReported = isReported(ai);
+    const bReported = isReported(bi);
+    if (aReported !== bReported) return aReported ? 1 : -1;
+    const aDate = ai.reportDate || "";
+    const bDate = bi.reportDate || "";
     if (!aDate && !bDate) return a.symbol.localeCompare(b.symbol);
     if (!aDate) return 1;
     if (!bDate) return -1;
-    return aDate.localeCompare(bDate);
+    return aReported ? bDate.localeCompare(aDate) : aDate.localeCompare(bDate);
   });
 
   tbody.innerHTML = rows.map((company) => renderEarningsCard(company, popularEarningsBySymbol[company.symbol] || {})).join("");
+}
+
+// 财报 beat/miss 徽章
+function earningsBeatTag(beat, estimateText) {
+  if (!beat) return "";
+  const tip = estimateText ? `（预期 ${estimateText}，容差内为符合）` : "";
+  const map = {
+    beat: { cls: "ec-beat", text: "🟢 超预期" },
+    meet: { cls: "ec-meet", text: "⚪ 符合预期" },
+    miss: { cls: "ec-miss", text: "🔴 未达预期" },
+  };
+  const m = map[beat];
+  if (!m) return "";
+  return `<i class="ec-beat-tag ${m.cls}" title="实际值对比分析师一致预期${tip}">${m.text}</i>`;
+}
+
+function isReportedItem(item) {
+  return item?.status === "reported" || Boolean(item?.actualEps || item?.actualRevenue);
 }
 
 function renderEarningsCard(company, item) {
@@ -546,31 +571,51 @@ function renderEarningsCard(company, item) {
 
   const days = earningsDaysUntil(item.reportDate);
   const hasValidDate = Number.isFinite(days);
-  const countdownCls = !hasValidDate ? "" : days === 0 ? "ec-countdown-today" : days > 0 && days <= 7 ? "ec-countdown-soon" : "";
-  const cardCls = !hasValidDate ? "earnings-card-tbd" : days === 0 ? "earnings-card-today" : days > 0 && days <= 7 ? "earnings-card-soon" : "";
+  const reported = isReportedItem(item);
+  const countdownCls = reported
+    ? "ec-countdown-done"
+    : !hasValidDate
+      ? ""
+      : days === 0
+        ? "ec-countdown-today"
+        : days > 0 && days <= 7
+          ? "ec-countdown-soon"
+          : "";
+  const cardCls = reported
+    ? "earnings-card-reported"
+    : !hasValidDate
+      ? "earnings-card-tbd"
+      : days === 0
+        ? "earnings-card-today"
+        : days > 0 && days <= 7
+          ? "earnings-card-soon"
+          : "";
   const countdown =
     !hasValidDate
       ? "财报日期待确认"
       : days < 0
-      ? `已发布 ${Math.abs(days)} 天`
-      : days === 0
-        ? "今日发财报"
-        : `还有 ${days} 天`;
+        ? `已发布 ${Math.abs(days)} 天`
+        : days === 0
+          ? reported
+            ? "今日已发财报"
+            : "今日发财报"
+          : `还有 ${days} 天`;
   const fiscalPeriod = item.fiscalPeriod
     ? escapeHtml(item.fiscalPeriod)
     : item.fiscalDateEnding
       ? escapeHtml(formatDateLabel(item.fiscalDateEnding))
       : "—";
   const stars = Number(item.star) > 0 ? `<span class="ec-stars">${"★".repeat(Math.min(5, Number(item.star)))}</span>` : "";
+  const reportedBadge = reported ? `<span class="ec-reported-badge">已发布</span>` : "";
 
-  // 财报已发（有实际值）展示实际，否则展示预估
-  const eps = item.actualEps
-    ? `<span class="ec-actual">EPS ${formatEps(item.actualEps)}<i>实际</i></span>`
+  // 财报已发：实际值 + 超预期/符合/未达徽章；否则展示预估
+  const eps = reported
+    ? `<span class="ec-actual">EPS ${formatEps(item.actualEps)}${earningsBeatTag(item.epsBeat, formatEps(item.estimate))}</span>`
     : item.estimate
       ? `<span title="预估每股收益">EPS预 ${formatEps(item.estimate)}</span>`
       : "";
-  const revenue = item.actualRevenue
-    ? `<span class="ec-actual">营收 ${formatUsdAmount(item.actualRevenue)}<i>实际</i></span>`
+  const revenue = reported
+    ? `<span class="ec-actual">营收 ${formatUsdAmount(item.actualRevenue)}${earningsBeatTag(item.revenueBeat, formatUsdAmount(item.estimateRevenue))}</span>`
     : item.estimateRevenue
       ? `<span title="预估营收">营收预 ${formatUsdAmount(item.estimateRevenue)}</span>`
       : "";
@@ -579,7 +624,7 @@ function renderEarningsCard(company, item) {
     <article class="earnings-card ${cardCls}" aria-label="${escapeHtml(`${company.symbol} ${company.nameCn} 财报`) }">
       <div class="ec-head">
         <span class="ec-symbol">${escapeHtml(company.symbol)}</span>
-        <span class="ec-actions">${stars}<button class="earnings-remove-btn" type="button" data-remove-earnings="${escapeHtml(company.symbol)}" title="删除此公司" aria-label="删除 ${escapeHtml(company.symbol)}">×</button></span>
+        <span class="ec-actions">${reportedBadge}${stars}<button class="earnings-remove-btn" type="button" data-remove-earnings="${escapeHtml(company.symbol)}" title="删除此公司" aria-label="删除 ${escapeHtml(company.symbol)}">×</button></span>
       </div>
       <div class="ec-name">${escapeHtml(company.nameCn)}</div>
       <div class="ec-subname">${escapeHtml(company.name)}</div>

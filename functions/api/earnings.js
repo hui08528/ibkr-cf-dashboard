@@ -5,6 +5,8 @@
 // 缓存：单个 symbol 结果 + 长桥事件窗口，TTL 默认 24h（EARNINGS_CACHE_SECONDS）。
 
 import { createRequire } from "node:module";
+import fs from "node:fs";
+import path from "node:path";
 import { getSharedCalendarCtx } from "./lib/longbridge.js";
 import { isLongbridgeConfigured } from "./lib/longbridge.js";
 import { isFinnhubConfigured, fetchFinnhubEarnings } from "./lib/finnhub.js";
@@ -12,6 +14,9 @@ import { isFinnhubConfigured, fetchFinnhubEarnings } from "./lib/finnhub.js";
 const ALPHA_VANTAGE_URL = "https://www.alphavantage.co/query";
 const HORIZON_DAYS = 180; // 长桥查询窗口（财报确认日期通常在未来 1~2 个季度）
 const LB_EVENT_CAP = 300; // 单次窗口事件上限（超出需分页，当前窗口足够）
+const DEFAULT_LOOKBACK_DAYS = 7; // 财报发布后回看多少天，仍展示实际值与预期判定
+const DEFAULT_EPS_TOL = 0.02; // EPS ±2% 内算符合预期
+const DEFAULT_REV_TOL = 0.01; // 营收 ±1% 内算符合预期
 
 const require = createRequire(import.meta.url);
 
@@ -20,6 +25,72 @@ let lbEvents = null; // 长桥原始事件（已归一）
 let lbEventsAt = 0;
 let cachedCalendar = null;
 let cachedCalendarAt = 0;
+
+// 长桥单日事件进程内缓存：接口实测只返回 start 当天事件，历史日期数据不变，缓存 12h
+const lbDayCache = new Map();
+const LB_DAY_TTL_MS = 12 * 3600 * 1000;
+
+// —— 预期快照：财报前把 Finnhub 预估（EPS/营收/财季/日期）落盘，
+//    发布后 Finnhub 会滚动到下季度、长桥当天事件又常缺预估，快照用来补预期做 beat/miss 判定。
+function estimateSnapshotFile(env) {
+  return env.EARNINGS_ESTIMATES_FILE || "/data/earnings-estimates.json";
+}
+
+function loadEstimateSnapshot(env) {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(estimateSnapshotFile(env), "utf8"));
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveEstimateSnapshot(snapshot, env) {
+  try {
+    const file = estimateSnapshotFile(env);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    const tmp = `${file}.tmp-${process.pid}`;
+    fs.writeFileSync(tmp, JSON.stringify(snapshot, null, 2), { mode: 0o600 });
+    fs.renameSync(tmp, file);
+  } catch (error) {
+    console.warn(`[earnings] 预期快照落盘失败: ${error.message}`);
+  }
+}
+
+// "111.32 B" / "2.53" / "1,234.5 M" → 数值（美元）；无法解析返回 null
+function parseMoney(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const match = String(value).trim().match(/^([\d,.]+)\s*([KMBT])?$/i);
+  if (!match) return null;
+  const n = Number(match[1].replace(/,/g, ""));
+  if (!Number.isFinite(n)) return null;
+  const mult = { K: 1e3, M: 1e6, B: 1e9, T: 1e12, "": 1 }[(match[2] || "").toUpperCase()];
+  return n * mult;
+}
+
+// 实际 vs 预期：beat 超预期 / meet 符合 / miss 未达；任一缺失返回 null（不硬贴标签）
+function classifyBeat(actual, estimate, tolerance) {
+  const a = parseMoney(actual);
+  const e = parseMoney(estimate);
+  if (a === null || e === null || e === 0) return null;
+  const ratio = a / e;
+  if (ratio >= 1 + tolerance) return "beat";
+  if (ratio <= 1 - tolerance) return "miss";
+  return "meet";
+}
+
+// 统一输出：带实际值即标记 reported 并判定，否则 upcoming
+function finalizeRow(row, epsTol, revTol) {
+  if (row.actualEps || row.actualRevenue) {
+    return {
+      ...row,
+      status: "reported",
+      epsBeat: classifyBeat(row.actualEps, row.estimate, epsTol),
+      revenueBeat: classifyBeat(row.actualRevenue, row.estimateRevenue, revTol),
+    };
+  }
+  return { ...row, status: "upcoming" };
+}
 
 export async function onRequestGet({ env, request }) {
   const cacheTtlMs = Number(env.EARNINGS_CACHE_SECONDS || 86400) * 1000;
@@ -46,11 +117,15 @@ export async function onRequestGet({ env, request }) {
     }
 
     const results = await getEarningsForSymbols(symbols, {
+      env: process.env,
       lbReady,
       apiKey,
       finnhubKey,
       forceRefresh,
       cacheTtlMs,
+      epsTol: Number(process.env.EARNINGS_BEAT_TOL_EPS) || DEFAULT_EPS_TOL,
+      revTol: Number(process.env.EARNINGS_BEAT_TOL_REVENUE) || DEFAULT_REV_TOL,
+      lookbackDays: Number(process.env.EARNINGS_LOOKBACK_DAYS) || DEFAULT_LOOKBACK_DAYS,
     });
 
     const sources = new Set(Object.values(results).map((row) => row.source));
@@ -67,7 +142,18 @@ export async function onRequestGet({ env, request }) {
   }
 }
 
-async function getEarningsForSymbols(symbols, { lbReady, apiKey, finnhubKey, forceRefresh, cacheTtlMs }) {
+async function getEarningsForSymbols(symbols, options) {
+  const {
+    env = process.env,
+    lbReady,
+    apiKey,
+    finnhubKey,
+    forceRefresh,
+    cacheTtlMs,
+    epsTol = DEFAULT_EPS_TOL,
+    revTol = DEFAULT_REV_TOL,
+    lookbackDays = DEFAULT_LOOKBACK_DAYS,
+  } = options;
   const results = {};
   const missing = [];
 
@@ -82,6 +168,25 @@ async function getEarningsForSymbols(symbols, { lbReady, apiKey, finnhubKey, for
 
   if (missing.length === 0) return results;
 
+  const snapshot = loadEstimateSnapshot(env);
+  let snapshotDirty = false;
+  const rememberEstimate = (symbol, value) => {
+    if (!value.estimate && !value.estimateRevenue) return;
+    const prev = snapshot[symbol] || {};
+    const next = {
+      fiscalPeriod: value.fiscalPeriod || prev.fiscalPeriod || "",
+      estimate: value.estimate || prev.estimate || "",
+      estimateRevenue: value.estimateRevenue || prev.estimateRevenue || "",
+      currency: value.currency || prev.currency || "USD",
+      reportDate: value.reportDate || prev.reportDate || "",
+      savedAt: new Date().toISOString(),
+    };
+    if (JSON.stringify(prev) !== JSON.stringify(next)) {
+      snapshot[symbol] = next;
+      snapshotDirty = true;
+    }
+  };
+
   // 0) Finnhub：美股标的优先（财报期 + 预估EPS + 预估营收）。
   //    批量按月开窗、批内共享；未命中/异常不中断，归入 lbUnresolved 走长桥/AV。
   let lbUnresolved = missing;
@@ -91,8 +196,10 @@ async function getEarningsForSymbols(symbols, { lbReady, apiKey, finnhubKey, for
     try {
       const found = await fetchFinnhubEarnings(usSymbols, finnhubKey);
       for (const [symbol, value] of found) {
-        cachedBySymbol.set(symbol, { value, cachedAt: Date.now() });
-        results[symbol] = value;
+        const finalized = finalizeRow(value, epsTol, revTol);
+        cachedBySymbol.set(symbol, { value: finalized, cachedAt: Date.now() });
+        results[symbol] = finalized;
+        if (finalized.status === "upcoming") rememberEstimate(symbol, finalized); // 留住预期，发布后用于判定
       }
       lbUnresolved = [...nonUs, ...usSymbols.filter((symbol) => !found.has(symbol))];
     } catch (error) {
@@ -100,20 +207,42 @@ async function getEarningsForSymbols(symbols, { lbReady, apiKey, finnhubKey, for
       lbUnresolved = missing;
     }
   }
-  if (lbUnresolved.length === 0) return results;
+  if (lbUnresolved.length === 0) {
+    if (snapshotDirty) saveEstimateSnapshot(snapshot, env);
+    return results;
+  }
 
-  // 1) 长桥：整窗口事件拉一次，只处理 Finnhub 未命中的（lbUnresolved），
-  //    避免覆盖已由 Finnhub 命中（含财报期）的美股结果。
+  // 1) 长桥：今天事件（含盘前已发布的实际值）+ 过去 lookbackDays 天的已发布事件。
   if (lbReady) {
-    const events = await getLongbridgeEvents(forceRefresh, cacheTtlMs).catch((error) => {
-      console.warn(`[earnings] 长桥日历失败，回退 AV: ${error.message}`);
+    // 今天（HORIZON 窗口实测只返回 start 当天）
+    const todayEvents = await getLongbridgeEvents(forceRefresh, cacheTtlMs).catch((error) => {
+      console.warn(`[earnings] 长桥今日日历失败，回退 AV: ${error.message}`);
       return null;
     });
-    if (events) {
+    // 过去 N 天逐日查（单日接口+进程缓存），合并成已发布事件池
+    const pastEvents = [];
+    for (let i = 1; i <= lookbackDays; i += 1) {
+      const d = new Date();
+      d.setUTCDate(d.getUTCDate() - i);
+      const dayStr = isoDate(d);
+      const dayEvents = await getLbDayEvents(dayStr).catch(() => []);
+      pastEvents.push(...dayEvents);
+    }
+
+    if (todayEvents || pastEvents.length) {
       const stillUnresolved = [];
       for (const symbol of lbUnresolved) {
-        const value = findNextLbEvent(events, symbol);
-        if (value) {
+        // 优先：今天/未来事件（发财报当天 actual 已出 → reported）
+        const upcoming = todayEvents ? findNextLbEvent(todayEvents, symbol) : null;
+        const reported = findReportedLbEvent(pastEvents, symbol, lookbackDays);
+
+        if (upcoming) {
+          const value = assembleLbValue(symbol, upcoming, snapshot[symbol], epsTol, revTol);
+          cachedBySymbol.set(symbol, { value, cachedAt: Date.now() });
+          results[symbol] = value;
+          if (value.status === "upcoming") rememberEstimate(symbol, value);
+        } else if (reported) {
+          const value = assembleLbValue(symbol, reported, snapshot[symbol], epsTol, revTol);
           cachedBySymbol.set(symbol, { value, cachedAt: Date.now() });
           results[symbol] = value;
         } else {
@@ -124,7 +253,7 @@ async function getEarningsForSymbols(symbols, { lbReady, apiKey, finnhubKey, for
     }
   }
 
-  // 2) Alpha Vantage 兜底
+  // 2) Alpha Vantage 兜底（仅未来财报）
   if (lbUnresolved.length && apiKey) {
     const calendar = await getCalendar(apiKey, forceRefresh, cacheTtlMs);
     for (const symbol of lbUnresolved) {
@@ -138,7 +267,66 @@ async function getEarningsForSymbols(symbols, { lbReady, apiKey, finnhubKey, for
     }
   }
 
+  if (snapshotDirty) saveEstimateSnapshot(snapshot, env);
   return results;
+}
+
+// 长桥单日事件（接口只返回 start 当天），进程内缓存 12h（历史数据不变）
+async function getLbDayEvents(dateStr) {
+  const cached = lbDayCache.get(dateStr);
+  if (cached && Date.now() - cached.at < LB_DAY_TTL_MS) return cached.events;
+
+  const calCtx = await getSharedCalendarCtx();
+  if (!calCtx) return [];
+  const lb = require("longbridge");
+  const res = await calCtx.financeCalendar(
+    lb.CalendarCategory.Report,
+    dateStr,
+    dateStr,
+    null,
+    LB_EVENT_CAP
+  );
+  const events = res.list.flatMap((day) => day.infos.map(normalizeLbEvent));
+  lbDayCache.set(dateStr, { events, at: Date.now() });
+  return events;
+}
+
+// 过去 N 天内最新一条带实际 EPS 的事件
+function findReportedLbEvent(events, symbol, lookbackDays) {
+  const since = new Date();
+  since.setUTCHours(0, 0, 0, 0);
+  since.setUTCDate(since.getUTCDate() - lookbackDays);
+  return (
+    events
+      .filter((row) => row.symbol === symbol && row.actualEps)
+      .filter((row) => parseDateValue(row.reportDate) >= since.getTime())
+      .sort((a, b) => parseDateValue(b.reportDate) - parseDateValue(a.reportDate))[0] || null
+  );
+}
+
+// 长桥事件组装：有实际值 → reported + beat/miss（预期取事件自带或快照）；否则 upcoming
+function assembleLbValue(symbol, event, snapshot = {}, epsTol, revTol) {
+  if (event.actualEps || event.actualRevenue) {
+    const estimate = event.estimate || snapshot.estimate || "";
+    const estimateRevenue = event.estimateRevenue || snapshot.estimateRevenue || "";
+    return {
+      symbol,
+      source: "longbridge",
+      status: "reported",
+      reportDate: event.reportDate,
+      fiscalPeriod: snapshot.fiscalPeriod || "",
+      session: event.session,
+      star: event.star,
+      currency: event.currency,
+      estimate,
+      estimateRevenue,
+      actualEps: event.actualEps,
+      actualRevenue: event.actualRevenue,
+      epsBeat: classifyBeat(event.actualEps, estimate, epsTol),
+      revenueBeat: classifyBeat(event.actualRevenue, estimateRevenue, revTol),
+    };
+  }
+  return { symbol, fiscalDateEnding: "", ...event, source: "longbridge", status: "upcoming" };
 }
 
 // —— 长桥 ——
@@ -227,9 +415,12 @@ function findNextEarnings(rows, symbol) {
         session: "",
         star: 0,
         source: "alpha-vantage",
+        status: "upcoming",
         estimateRevenue: "",
         actualEps: "",
         actualRevenue: "",
+        epsBeat: null,
+        revenueBeat: null,
       }
     : emptyEarnings(symbol);
 }
@@ -239,14 +430,18 @@ function emptyEarnings(symbol) {
     symbol,
     reportDate: "",
     fiscalDateEnding: "",
+    fiscalPeriod: "",
     estimate: "",
     currency: "USD",
     session: "",
     star: 0,
     source: "none",
+    status: "upcoming",
     estimateRevenue: "",
     actualEps: "",
     actualRevenue: "",
+    epsBeat: null,
+    revenueBeat: null,
   };
 }
 
