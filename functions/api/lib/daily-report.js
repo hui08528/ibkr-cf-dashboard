@@ -90,6 +90,8 @@ function fmtSigned(value, digits = 2) {
 }
 
 function num(value) {
+  // 注意：Number(null)===0、Number("")===0，必须先排除缺失值，否则溢价缺失会被当成 0%
+  if (value === null || value === undefined || value === "") return null;
   return Number.isFinite(Number(value)) ? Number(value) : null;
 }
 

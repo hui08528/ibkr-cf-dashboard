@@ -51,6 +51,8 @@ function symbolName(symbol) {
 }
 
 function num(value) {
+  // 注意：Number(null)===0、Number("")===0，必须先排除缺失值，否则溢价缺失会被当成 0%
+  if (value === null || value === undefined || value === "") return null;
   const n = Number(value);
   return Number.isFinite(n) ? n : null;
 }
@@ -131,14 +133,15 @@ export async function evaluateRule(rule, env = {}) {
     const ownPremium = num(own?.premiumRate);
     if (ownPremium === null) return { triggered: false, skipped: true, reason: "溢价率不可用" };
 
-    const peers = quotes.filter(
-      (q) => own.premiumGroup && q.premiumGroup === own.premiumGroup && q.symbol !== symbol
-    );
-    const peerPremiums = peers.map((q) => num(q.premiumRate)).filter((v) => v !== null);
-    if (!peerPremiums.length) return { triggered: false, skipped: true, reason: "同组无数据" };
+    // 全组（含自身）取有效溢价；数据残缺（有效不足2个）时跳过，避免 null 被当成 0% 误报
+    const group = quotes
+      .filter((q) => own.premiumGroup && q.premiumGroup === own.premiumGroup)
+      .map((q) => ({ symbol: q.symbol, premium: num(q.premiumRate) }))
+      .filter((q) => q.premium !== null);
+    if (group.length < 2) return { triggered: false, skipped: true, reason: "同组溢价数据不完整" };
 
-    const groupMin = Math.min(...peerPremiums);
-    const minSymbol = peers.find((q) => num(q.premiumRate) === groupMin)?.symbol || "";
+    const groupMin = Math.min(...group.map((q) => q.premium));
+    const minSymbol = group.find((q) => q.premium === groupMin)?.symbol || "";
     const spread = Math.round((ownPremium - groupMin) * 100) / 100;
     return {
       triggered: spread >= Number(params.value),
