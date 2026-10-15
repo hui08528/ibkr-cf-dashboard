@@ -96,6 +96,61 @@ app.get("/", (_req, res) => {
   res.json({ ok: true, service: "qdii-premium" });
 });
 
+// —— 外盘期货（新浪 hf_，服务端在国内抓取，VPS 直连新浪会 403）——
+// 新浪字段：0最新 2买 3卖 4高 5低 6时间 7开 8昨结 12日期 13名称
+async function fetchSinaFutures(code) {
+  const response = await fetch(`https://hq.sinajs.cn/list=hf_${code}`, {
+    headers: {
+      Referer: "https://finance.sina.com.cn/",
+      "User-Agent": "Mozilla/5.0",
+    },
+  });
+  if (!response.ok) throw new Error(`Sina futures HTTP ${response.status}`);
+
+  const text = gbk.decode(new Uint8Array(await response.arrayBuffer()));
+  const match = text.match(/"([^"]*)"/);
+  if (!match || !match[1]) return null; // 新浪未覆盖（如 hf_MNQ）返回空串
+
+  const f = match[1].split(",");
+  const price = Number(f[0]);
+  const prevClose = Number(f[8]);
+  if (!Number.isFinite(price) || price <= 0) return null;
+  const change = Number.isFinite(prevClose) && prevClose > 0 ? price - prevClose : null;
+  const changePct = change === null ? null : (change / prevClose) * 100;
+  return {
+    code,
+    name: f[13] || code,
+    price,
+    prevClose: Number.isFinite(prevClose) ? prevClose : null,
+    open: Number(f[7]) || null,
+    high: Number(f[4]) || null,
+    low: Number(f[5]) || null,
+    change: change === null ? null : Math.round(change * 100) / 100,
+    changePct: changePct === null ? null : Math.round(changePct * 100) / 100,
+    quoteTime: `${f[12] || ""} ${f[6] || ""}`.trim(),
+  };
+}
+
+app.get("/futures", async (req, res) => {
+  if (!authorized(req)) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+
+  // 白名单：只放开已确认的外盘指数期货代码，防止被当开放代理
+  const ALLOWED = ["NQ", "ES", "YM", "RTY", "CL"];
+  const codes = String(req.query.codes || "NQ,ES")
+    .split(",")
+    .map((code) => code.trim().toUpperCase())
+    .filter((code) => ALLOWED.includes(code))
+    .slice(0, 10);
+
+  const result = {};
+  for (const code of codes) {
+    result[code] = (await fetchSinaFutures(code).catch(() => null)) || null;
+  }
+  res.json({ futures: result, fetchedAt: new Date().toISOString() });
+});
+
 app.get("/qdii-premium", async (req, res) => {
   if (!authorized(req)) {
     return res.status(401).json({ error: "Unauthorized" });

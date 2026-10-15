@@ -46,9 +46,13 @@ function loadState(env) {
       cnDate: parsed.cnDate || "",
       cnIntraday1300: parsed.cnIntraday1300 || "",
       cnIntraday1330: parsed.cnIntraday1330 || "",
+      cnIntraday0935: parsed.cnIntraday0935 || "",
+      cnIntraday1030: parsed.cnIntraday1030 || "",
+      cnIntraday1305: parsed.cnIntraday1305 || "",
+      cnIntraday1430: parsed.cnIntraday1430 || "",
     };
   } catch {
-    return { usDate: "", cnDate: "", cnIntraday1300: "", cnIntraday1330: "" };
+    return { usDate: "", cnDate: "", cnIntraday0935: "", cnIntraday1030: "", cnIntraday1305: "", cnIntraday1430: "" };
   }
 }
 
@@ -483,8 +487,10 @@ async function maybeCn(state, env) {
 // —— QDII 盘中日报 ——
 // 13:00 / 13:30 各推一次，窗口留几十秒冗余防调度抖动；按 tradeDate 去重（休市日天然跳过）。
 const CN_INTRADAY_SLOTS = {
-  "1300": { min: 1258, max: 1305, key: "cnIntraday1300", title: "📊 QDII盘中日报（13:00）" },
-  "1330": { min: 1328, max: 1335, key: "cnIntraday1330", title: "📊 QDII盘中日报（13:30）" },
+  "0935": { min: 933, max: 940, key: "cnIntraday0935", title: "📊 QDII盘中日报（09:35）" },
+  "1030": { min: 1028, max: 1035, key: "cnIntraday1030", title: "📊 QDII盘中日报（10:30）" },
+  "1305": { min: 1303, max: 1310, key: "cnIntraday1305", title: "📊 QDII盘中日报（13:05）" },
+  "1430": { min: 1428, max: 1435, key: "cnIntraday1430", title: "📊 QDII盘中日报（14:30）" },
 };
 
 async function maybeCnIntraday(state, env, slot) {
@@ -519,16 +525,15 @@ export async function maybeDailyReports(env = process.env) {
     return { enabled: false };
   }
   const state = loadState(env);
-  const [us, cn, cnIntraday1300, cnIntraday1330] = await Promise.all([
+  const [us, cn, cnIntraday0935, cnIntraday1030, cnIntraday1305, cnIntraday1430] = await Promise.all([
     maybeUs(state, env).catch((error) => ({ sent: false, reason: error.message })),
     maybeCn(state, env).catch((error) => ({ sent: false, reason: error.message })),
-    maybeCnIntraday(state, env, "1300").catch((error) => ({ sent: false, reason: error.message })),
-    maybeCnIntraday(state, env, "1330").catch((error) => ({ sent: false, reason: error.message })),
+    ...Object.keys(CN_INTRADAY_SLOTS).map((slot) => maybeCnIntraday(state, env, slot).catch((error) => ({ sent: false, reason: error.message }))),
   ]);
-  return { enabled: true, us, cn, cnIntraday1300, cnIntraday1330 };
+  return { enabled: true, us, cn, cnIntraday0935, cnIntraday1030, cnIntraday1305, cnIntraday1430 };
 }
 
-// 手动/测试：忽略窗口与去重，立即生成并推送；kind: "us" | "cn" | "cn-1300" | "cn-1330"
+// 手动/测试：忽略窗口与去重，立即生成并推送；kind: "us" | "cn" | "cn-0935" | "cn-1030" | "cn-1305" | "cn-1430"
 export async function forceReport(kind, env = process.env) {
   if (kind === "us") {
     const [rows, sentiment] = await Promise.all([buildUsRows(env), buildSentiment(env)]);
@@ -537,7 +542,7 @@ export async function forceReport(kind, env = process.env) {
     const sent = await sendToDingtalk(content, "📊 美股收盘日报", env);
     return { kind, tradeDate, sent, preview: content };
   }
-  const slot = kind === "cn-1300" ? "1300" : kind === "cn-1330" ? "1330" : null;
+  const slot = kind.startsWith("cn-") && CN_INTRADAY_SLOTS[kind.slice(3)] ? kind.slice(3) : null;
   const [quotes, futures] = await Promise.all([fetchCnQuotes(env), fetchFutures(env)]);
   const tradeDate = quotes.map((q) => q.tradingDay).filter(Boolean).sort().at(-1) || tzDate(new Date(), BJ_TZ);
   if (slot) {
