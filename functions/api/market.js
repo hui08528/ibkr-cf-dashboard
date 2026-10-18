@@ -18,6 +18,14 @@ export const usInstruments = [
   { symbol: "VOO", name: "Vanguard S&P 500 ETF", nameCn: "标普500 ETF" },
   { symbol: "SMH", name: "VanEck Semiconductor ETF", nameCn: "半导体 ETF" },
   { symbol: "VGT", name: "Vanguard Information Technology ETF", nameCn: "信息科技 ETF" },
+  { symbol: "GOOG", name: "Alphabet Inc.", nameCn: "谷歌", category: "stock" },
+  { symbol: "TSLA", name: "Tesla Inc.", nameCn: "特斯拉", category: "stock" },
+  { symbol: "AAPL", name: "Apple Inc.", nameCn: "苹果", category: "stock" },
+  { symbol: "NVDA", name: "NVIDIA Corp.", nameCn: "英伟达", category: "stock" },
+  { symbol: "MSFT", name: "Microsoft Corp.", nameCn: "微软", category: "stock" },
+  { symbol: "AMZN", name: "Amazon.com Inc.", nameCn: "亚马逊", category: "stock" },
+  { symbol: "TSM", name: "Taiwan Semiconductor", nameCn: "台积电", category: "stock" },
+  { symbol: "AVGO", name: "Broadcom Inc.", nameCn: "博通", category: "stock" },
 ];
 
 // 场内 QDII（追踪同一批海外指数的国内 ETF）

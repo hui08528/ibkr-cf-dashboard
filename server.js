@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { onRequestGet as portfolioHandler } from "./functions/api/portfolio.js";
 import { onRequestGet as earningsHandler } from "./functions/api/earnings.js";
 import { onRequestGet as marketHandler } from "./functions/api/market.js";
+import { onRequestGet as fundamentalsHandler } from "./functions/api/fundamentals.js";
 import { onRequestGet as benchmarkHandler } from "./functions/api/benchmark.js";
 import { onRequestGet as fearGreedHandler } from "./functions/api/fear-greed.js";
 import { onRequestGet as rebalanceHandler } from "./functions/api/rebalance.js";
@@ -55,6 +56,7 @@ app.get("/healthz", (_req, res) => res.json({ ok: true, uptime: process.uptime()
 app.get("/api/portfolio", toExpress(portfolioHandler));
 app.get("/api/earnings", toExpress(earningsHandler));
 app.get("/api/market", toExpress(marketHandler));
+app.get("/api/fundamentals", toExpress(fundamentalsHandler));
 app.get("/api/benchmark", toExpress(benchmarkHandler));
 app.get("/api/fear-greed", toExpress(fearGreedHandler));
 app.get("/api/rebalance", toExpress(rebalanceHandler));

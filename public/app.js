@@ -691,6 +691,7 @@ async function loadMarketSnapshot() {
 
 function renderMarketSnapshot() {
   const grid = document.getElementById("market-grid");
+  const stockGrid = document.getElementById("stock-market-grid");
   const cnGrid = document.getElementById("cn-market-grid");
   const status = document.getElementById("market-status");
   if (!grid) return;
@@ -718,12 +719,15 @@ function renderMarketSnapshot() {
   }
 
   grid.innerHTML = marketQuotes.length
-    ? marketQuotes.map(renderQuoteCard).join("")
+    ? marketQuotes.filter((quote) => !["GOOG", "TSLA", "AAPL", "NVDA", "MSFT", "AMZN", "TSM", "AVGO"].includes(quote.symbol)).map(renderQuoteCard).join("")
     : `<div class="empty-cell">暂无行情数据</div>`;
+
+  if (stockGrid) stockGrid.innerHTML = marketQuotes.filter((quote) => ["GOOG", "TSLA", "AAPL", "NVDA", "MSFT", "AMZN", "TSM", "AVGO"].includes(quote.symbol)).map(renderQuoteCard).join("") || `<div class="empty-cell">暂无热门正股行情</div>`;
 
   if (cnGrid) {
     cnGrid.innerHTML = cnMarketQuotes.length ? arrangeCnQuotes(cnMarketQuotes).map(renderQuoteCard).join("") : "";
   }
+  wireValuationDetails();
 }
 
 function renderQuoteCard(quote) {
@@ -781,12 +785,14 @@ function renderQuoteCard(quote) {
   const effUp = effChange >= 0;
   const effAvailable = streamQ?.price ? true : available;
   const sym = quote.symbol;
+  const hasValuation = ["GOOG", "TSLA", "AAPL", "NVDA", "MSFT", "AMZN", "TSM", "AVGO"].includes(sym);
 
   return `
     <div class="market-item">
       ${riskBanner}
       <div class="market-symbol">${escapeHtml(quote.displaySymbol || sym)}</div>
       <div class="market-name">${escapeHtml(quote.nameCn || quote.name || sym)}</div>
+      ${hasValuation ? `<button class="valuation-open-btn" type="button" data-valuation-symbol="${escapeHtml(sym)}" data-valuation-name="${escapeHtml(quote.nameCn || quote.name || sym)}">估值详情</button>` : ""}
       <div class="market-price"><span class="field-label">现价</span><span class="live-dot" data-live-dot="${sym}" data-on="${live ? "1" : "0"}"></span>${effAvailable ? `<span data-live-price="${sym}">${formatPlainPrice(effPrice)}</span>` : "暂无数据"}</div>
       <div class="market-change ${effAvailable ? (effUp ? "up" : "down") : "market-unavailable"}" data-live-class="${sym}">
         ${effAvailable ? `<span class="field-label">涨跌</span><span class="change-tip" title="${changeTip}" data-live-change="${sym}">${effUp ? "+" : ""}${effChange.toFixed(2)} (${effUp ? "+" : ""}${effPct.toFixed(2)}%)</span>` : marketErrorLabel(quote.error)}
@@ -800,6 +806,33 @@ function renderQuoteCard(quote) {
       ${riskBadge}
     </div>
   `;
+}
+
+function wireValuationDetails() {
+  const modal = document.getElementById("valuation-modal");
+  const title = document.getElementById("valuation-modal-title");
+  const body = document.getElementById("valuation-modal-body");
+  if (!modal || !title || !body || modal.dataset.wired === "1") return;
+  modal.dataset.wired = "1";
+  const close = () => { modal.hidden = true; document.body.classList.remove("modal-open"); };
+  document.querySelectorAll("[data-valuation-close]").forEach((el) => el.addEventListener("click", close));
+  document.addEventListener("keydown", (event) => { if (event.key === "Escape" && !modal.hidden) close(); });
+  document.addEventListener("click", async (event) => {
+    const button = event.target.closest("[data-valuation-symbol]");
+    if (!button) return;
+    event.stopPropagation();
+    title.textContent = `${button.dataset.valuationName || button.dataset.valuationSymbol} · 估值详情`;
+    body.innerHTML = "<p>正在加载估值数据...</p>";
+    modal.hidden = false; document.body.classList.add("modal-open");
+    try {
+      const response = await fetch(`/api/fundamentals?symbol=${encodeURIComponent(button.dataset.valuationSymbol)}`);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "估值数据暂不可用");
+      const value = (v, suffix = "") => v !== null && v !== undefined && v !== "" && Number.isFinite(Number(v)) ? `${Number(v).toFixed(2)}${suffix}` : "暂无数据";
+      const rateTrend = (change) => change === null || change === undefined ? "暂无趋势数据" : `${Number(change) > 0 ? "上行" : Number(change) < 0 ? "下行" : "持平"} ${Math.abs(Number(change)).toFixed(2)} 个百分点`;
+      body.innerHTML = `<div class="valuation-grid"><div><span>市盈率（PE，过去 12 个月）</span><strong>${value(data.pe)}</strong><small>股价 ÷ 过去 12 个月每股收益</small></div><div><span>预期市盈率（Forward PE）</span><strong>${value(data.forwardPe)}</strong><small>股价 ÷ 未来预期每股收益</small></div><div><span>市盈率相对盈利增长比率（PEG，TTM）</span><strong>${value(data.peg)}</strong><small>市盈率 ÷ 盈利增长率</small></div><div><span>预期 PEG（Forward PEG）</span><strong>${value(data.forwardPeg)}</strong><small>基于未来预期盈利增长的 PEG</small></div><div><span>营收同比增长</span><strong>${value(data.revenueGrowthYoY, "%")}</strong><small>${escapeHtml(data.incomePeriod || "季度数据")} · ${escapeHtml(data.incomeDate || "日期未知")}</small></div><div><span>摊薄 EPS 同比增长</span><strong>${value(data.epsGrowthYoY, "%")}</strong><small>按季度同比计算 · ${escapeHtml(data.incomeDate || "日期未知")}</small></div><div><span>联邦基金利率趋势</span><strong>${value(data.federalFundsRate, "%")}</strong><small>${rateTrend(data.federalFundsChange)} · ${escapeHtml(data.federalFundsStartDate || "") || ""} 至 ${escapeHtml(data.federalFundsDate || "未知")}</small></div><div><span>美国 10 年期国债收益率趋势</span><strong>${value(data.treasury10Year, "%")}</strong><small>${rateTrend(data.treasury10YearChange)} · ${escapeHtml(data.treasuryStartDate || "")} 至 ${escapeHtml(data.treasuryDate || "未知")}</small></div></div><p class="muted-note">来源：${data.source} · ${new Date(data.updatedAt).toLocaleString()}</p>`;
+    } catch (error) { body.innerHTML = `<p>${escapeHtml(error.message)}</p>`; }
+  });
 }
 
 // 美股卡片补充统计：振幅（含OHLC tooltip）· 量比 · 股息率 · 成交额（美元）
@@ -2822,4 +2855,24 @@ function escapeHtml(value) {
 }
 
 // 所有 const/函数声明就位后再启动（init 内部会用到本文件后部定义的常量）
+const reorderFrameworkCards = () => {
+  const grid = document.querySelector("#section-framework .framework-grid");
+  if (!grid) return;
+  const cards = [...grid.querySelectorAll(":scope > .framework-topic")];
+  cards.forEach((card) => {
+    const match = card.querySelector("h3")?.textContent.match(/^(\d+)/);
+    if (match) card.style.order = Number(match[1]);
+  });
+  const jinshui = cards.find((card) => card.textContent.includes("金水哥"));
+  const longTerm = cards.find((card) => card.textContent.includes("长期投入") || card.textContent.includes("QDII"));
+  const marketQuotes = [...document.querySelectorAll("#section-framework .framework-topic")].find((card) => card.querySelector("h3")?.textContent.trim().startsWith("11."));
+  const jinshuiCard = [...document.querySelectorAll("#section-framework .framework-topic")].find((card) => card.querySelector("h3")?.textContent.includes("金水哥"));
+  if (marketQuotes && jinshuiCard && marketQuotes !== jinshuiCard) {
+    const target = jinshuiCard.querySelector(".framework-detail");
+    [...marketQuotes.querySelectorAll(".framework-quote")].filter((quote) => quote.textContent.includes("金水哥")).forEach((quote) => target?.appendChild(quote));
+  }
+  if (jinshui && longTerm) grid.insertBefore(jinshui, longTerm);
+};
+reorderFrameworkCards();
+
 init();

@@ -582,6 +582,13 @@ body {
   font-size: 13px;
   font-weight: 600;
 }
+.valuation-open-btn { margin: 6px 0; padding: 4px 8px; border: 1px solid var(--border); border-radius: 4px; background: transparent; color: var(--primary); cursor: pointer; font-size: 12px; }
+.valuation-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.valuation-grid > div { padding: 12px; border: 1px solid var(--border); border-radius: 6px; }
+.valuation-grid span, .valuation-grid strong { display: block; }
+.valuation-grid span { color: var(--text-muted); font-size: 12px; }
+.valuation-grid strong { margin-top: 4px; font-size: 20px; }
+.valuation-grid small { display: block; margin-top: 5px; color: var(--text-muted); font-size: 11px; line-height: 1.4; }
 
 .market-subname {
   margin-top: 2px;
