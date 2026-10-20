@@ -120,6 +120,23 @@ LONGBRIDGE_OAUTH_TOKEN_CACHE_B64=<上面输出的 base64 字符串>
 > 不配长桥也能跑：`/api/market` 自动降级回 Alpha Vantage（此时需填 `ALPHA_VANTAGE_API_KEY`）。
 > token 约 90 天过期并自动刷新；容器重建后首次请求会从 B64 自动恢复，无需人工干预。
 
+**重新授权（token 过期/refresh 也失效时，2026-10-20 实测）：**
+
+```bash
+# ① 必须带上 CN 接入点环境变量，否则 Python SDK 默认走香港 .com 平台，生成的 token 与
+#    生产 LONGBRIDGE_REGION=cn 对不上（.cn/.com 是两个平台）：
+LONGBRIDGE_HTTP_URL=https://openapi.longbridge.cn \
+LONGBRIDGE_QUOTE_WS_URL=wss://openapi-quote.longbridge.cn/v2 \
+LONGBRIDGE_TRADE_WS_URL=wss://openapi-trade.longbridge.cn/v2 \
+LONGPORT_REGION=cn \
+python -u scripts/generate_longbridge_oauth_token.py --client-id <id> --verify-symbol AAPL.US
+# ② 必须 -u（无缓冲）：授权 URL 是脚本里的 print，不加 -u 时 stdout 被缓冲看不到 URL；
+#    脚本会起本地回调服务等 localhost:60355 回调，浏览器打开 URL 授权后自动写入新缓存。
+# ③ 新缓存 base64 后，VPS 只替换 .env 里 LONGBRIDGE_OAUTH_TOKEN_CACHE_B64 这一行即可
+#   （VPS .env 与本地键集合不一致，切勿整文件覆盖），然后：
+docker compose up -d --force-recreate dashboard   # env_file 变更需重建容器才生效
+```
+
 ### 4. 构建并启动
 
 ```bash
