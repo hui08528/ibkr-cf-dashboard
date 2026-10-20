@@ -118,7 +118,10 @@ LONGBRIDGE_OAUTH_TOKEN_CACHE_B64=<上面输出的 base64 字符串>
 ```
 
 > 不配长桥也能跑：`/api/market` 自动降级回 Alpha Vantage（此时需填 `ALPHA_VANTAGE_API_KEY`）。
-> token 约 90 天过期并自动刷新；容器重建后首次请求会从 B64 自动恢复，无需人工干预。
+> token 约 90 天过期并自动刷新；容器内 SDK 每次续期会**轮换 refresh token** 并写回挂载卷
+> `./data/.longbridge`（compose 已挂载），`restoreTokenCache` 仅当磁盘缓存缺失/更旧/损坏时才用 B64
+> 引导，所以部署/重建容器不会弄死 token，无需人工干预；只有 refresh token 链整体到期（约 90 天）
+> 才需要按上文重新授权一次。
 
 **重新授权（token 过期/refresh 也失效时，2026-10-20 实测）：**
 
