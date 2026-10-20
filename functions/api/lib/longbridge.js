@@ -67,6 +67,9 @@ function tokenCachePath(clientId) {
 }
 
 // 从 LONGBRIDGE_OAUTH_TOKEN_CACHE_B64 恢复 token 缓存（Docker/CI 无头环境）
+// 仅当磁盘缓存缺失 / 更旧 / 损坏时才用 B64 覆盖：容器内 SDK 每次自动续期会轮换
+// refresh token 并写回磁盘（~/.longbridge/openapi/tokens/<client_id>），若此处用旧的
+// B64 无条件覆盖，会把「已消费的旧 refresh token」写回去，导致容器重建后 token 提前失效。
 function restoreTokenCache(clientId) {
   const raw = env("LONGBRIDGE_OAUTH_TOKEN_CACHE_B64");
   if (!raw) return false;
@@ -79,7 +82,18 @@ function restoreTokenCache(clientId) {
   if (!payload.length) return false;
   const file = tokenCachePath(clientId);
   try {
-    if (fs.existsSync(file) && fs.readFileSync(file).equals(payload)) return false;
+    if (fs.existsSync(file)) {
+      const liveRaw = fs.readFileSync(file);
+      if (liveRaw.equals(payload)) return false;
+      try {
+        // 已有缓存比 B64 新（expires_at 更大）则保留，不覆盖
+        const existing = JSON.parse(liveRaw.toString("utf8"));
+        const cand = JSON.parse(payload.toString("utf8"));
+        if (Number(existing.expires_at || 0) >= Number(cand.expires_at || 0)) return false;
+      } catch {
+        // 磁盘缓存非法才允许 B64 覆盖
+      }
+    }
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(file, payload, { mode: 0o600 });
     return true;
