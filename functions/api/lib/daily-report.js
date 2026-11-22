@@ -216,25 +216,18 @@ function padRight(text, width) {
 
 // headers: 标的代码数组（如 ["513300", "159941"]）
 // metricRows: [{ label: "现价", cells: ["2.523", "1.526"] }]
-// 输出：每个指标两行——第一行标签，第二行全部标的数值（各列对齐）。
-// 两行式在钉钉 text 类型下清晰：标签行/数值行各自对齐，一眼横向对比。
-// 列宽按每列内容自适应（该列最长单元格宽度 + 1 空格分隔），压缩行宽避免钉钉折行/缩小。
+// 输出：每个指标两行——第一行标签，第二行全部标的数值。
+// 数值行用单空格分隔（不 padRight 对齐），行宽最小，确保钉钉 text 一行展示不折行。
+// 牺牲列对齐换取行宽，优先保证"同指标一眼横向对比"和"一行完整显示"。
 function comparisonBlock(headerLabel, headers, metricRows) {
-  const n = headers.length;
-  // 每列宽度 = 该列在所有行中的最长值宽度 + 1（分隔空格）
-  const widths = [];
-  for (let i = 0; i < n; i += 1) {
-    const colCells = [headers[i], ...metricRows.map((r) => r.cells[i])];
-    widths.push(Math.max(...colCells.map((c) => dispWidth(c))) + 1);
-  }
   const lines = [];
-  // 第一组：标签"标的"，下一行全部标的代码
+  // 第一组：标签"标的"，下一行全部标的代码（单空格分隔）
   lines.push(headerLabel);
-  lines.push(headers.map((h, i) => padRight(h, widths[i])).join(""));
-  // 之后每个指标：标签行 + 数值行
+  lines.push(headers.join(" "));
+  // 之后每个指标：标签行 + 数值行（单空格分隔）
   for (const row of metricRows) {
     lines.push(row.label);
-    lines.push(row.cells.map((c, i) => padRight(c, widths[i])).join(""));
+    lines.push(row.cells.join(" "));
   }
   return lines.join("\n");
 }
@@ -250,7 +243,7 @@ function renderUs(rows, tradeDate, sentiment) {
       { label: "现价", cells: valid.map((r) => (num(r.price) === null ? "-" : Number(r.price).toFixed(2))) },
       { label: "今日", cells: valid.map((r) => fmtSigned(r.changePct)) },
       { label: "5日", cells: valid.map((r) => fmtSigned(r.chg5)) },
-      { label: "年内", cells: valid.map((r) => (r.ytd === null || r.ytd === undefined ? "-" : fmtSigned(r.ytd))) },
+      { label: "年内", cells: valid.map((r) => (r.ytd === null || r.ytd === undefined ? "-" : fmtSigned(r.ytd, 1))) }, // 一位小数压缩行宽
       {
         label: "距高",
         cells: valid.map((r) => (r.dd === null ? "-" : `${r.dd >= 0 ? "+" : ""}${r.dd.toFixed(1)}%`)),
@@ -382,7 +375,7 @@ function buildCnComparisonBlock(quotes, { markBy = {} } = {}) {
     },
     { label: "换手", cells: sorted.map((q) => (num(q.turnoverRate) === null ? "-" : num(q.turnoverRate).toFixed(2) + "%")) },
     { label: "5日", cells: sorted.map((q) => fmtSigned(q.chg5)) },
-    { label: "年内", cells: sorted.map((q) => fmtSigned(q.ytdChangeRate)) },
+    { label: "年内", cells: sorted.map((q) => fmtSigned(q.ytdChangeRate, 1)) }, // 一位小数压缩行宽
   ];
   return comparisonBlock("标的", headers, metricRows);
 }
