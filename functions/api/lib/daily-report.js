@@ -390,7 +390,7 @@ function cnMarkBy(quotes) {
   if (ndx.length) {
     const min = Math.min(...ndx.map((q) => num(q.premiumRate)));
     const minSym = ndx.find((q) => num(q.premiumRate) === min)?.symbol;
-    if (minSym) markBy[minSym] = "*"; // 组内最低
+    // 组内最低不做标记（14.78%* 的 * 去掉）
   }
   const tech = quotes.find((q) => q.symbol === "159509");
   const techPrem = num(tech?.premiumRate);
