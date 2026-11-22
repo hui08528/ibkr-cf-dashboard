@@ -215,19 +215,31 @@ function padRight(text, width) {
 }
 
 // headers: 标的代码数组（如 ["513300", "159941"]）
-// metricRows: [{ label: "现价", cells: ["2.523", "1.526"] }]
+// metricRows: [{ label: "现价", cells: ["2.523", "1.526"], single?: boolean }]
 // 输出：每个指标两行——第一行标签，第二行全部标的数值。
-// 数值行用单空格分隔（不 padRight 对齐），行宽最小，确保钉钉 text 一行展示不折行。
-// 牺牲列对齐换取行宽，优先保证"同指标一眼横向对比"和"一行完整显示"。
+// 默认列对齐（padRight，该列最长值+1空格），保证竖列对齐一眼横向对比；
+// 标记 single: true 的行（如年内）用单空格分隔，压缩行宽避免钉钉折行。
 function comparisonBlock(headerLabel, headers, metricRows) {
+  const n = headers.length;
+  // 仅对非 single 行计算列宽（single 行不参与对齐，避免其宽值撑大列宽）
+  const alignRows = metricRows.filter((r) => !r.single);
+  const widths = [];
+  for (let i = 0; i < n; i += 1) {
+    const colCells = [headers[i], ...alignRows.map((r) => r.cells[i])];
+    widths.push(Math.max(...colCells.map((c) => dispWidth(c))) + 1);
+  }
   const lines = [];
-  // 第一组：标签"标的"，下一行全部标的代码（单空格分隔）
+  // 第一组：标签"标的"，下一行全部标的代码（对齐）
   lines.push(headerLabel);
-  lines.push(headers.join(" "));
-  // 之后每个指标：标签行 + 数值行（单空格分隔）
+  lines.push(headers.map((h, i) => padRight(h, widths[i])).join(""));
+  // 之后每个指标：标签行 + 数值行（默认对齐；single 行单空格）
   for (const row of metricRows) {
     lines.push(row.label);
-    lines.push(row.cells.join(" "));
+    if (row.single) {
+      lines.push(row.cells.join(" "));
+    } else {
+      lines.push(row.cells.map((c, i) => padRight(c, widths[i])).join(""));
+    }
   }
   return lines.join("\n");
 }
@@ -243,7 +255,7 @@ function renderUs(rows, tradeDate, sentiment) {
       { label: "现价", cells: valid.map((r) => (num(r.price) === null ? "-" : Number(r.price).toFixed(2))) },
       { label: "今日", cells: valid.map((r) => fmtSigned(r.changePct)) },
       { label: "5日", cells: valid.map((r) => fmtSigned(r.chg5)) },
-      { label: "年内", cells: valid.map((r) => (r.ytd === null || r.ytd === undefined ? "-" : fmtSigned(r.ytd))) },
+      { label: "年内", cells: valid.map((r) => (r.ytd === null || r.ytd === undefined ? "-" : fmtSigned(r.ytd))), single: true }, // 年内单空格不参与列对齐
       {
         label: "距高",
         cells: valid.map((r) => (r.dd === null ? "-" : `${r.dd >= 0 ? "+" : ""}${r.dd.toFixed(1)}%`)),
@@ -375,7 +387,7 @@ function buildCnComparisonBlock(quotes, { markBy = {} } = {}) {
     },
     { label: "换手", cells: sorted.map((q) => (num(q.turnoverRate) === null ? "-" : num(q.turnoverRate).toFixed(2) + "%")) },
     { label: "5日", cells: sorted.map((q) => fmtSigned(q.chg5)) },
-    { label: "年内", cells: sorted.map((q) => fmtSigned(q.ytdChangeRate)) },
+    { label: "年内", cells: sorted.map((q) => fmtSigned(q.ytdChangeRate)), single: true }, // 年内单空格不参与列对齐
   ];
   return comparisonBlock("标的", headers, metricRows);
 }
