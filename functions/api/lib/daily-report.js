@@ -334,18 +334,19 @@ function renderFutures(futures) {
   return lines;
 }
 
-// 单只标的（如纳指科技独苗 159509）→ 紧凑单行：全指标横排，不占多行
-function renderSingleLine(q, markBy = {}) {
+// 单只标的（如纳指科技独苗 159509）→ 竖排：每行一个指标，单列展示
+function renderSingleColumn(q, markBy = {}) {
   const mark = markBy[q.symbol] || "";
-  const parts = [
-    `现价${num(q.price) === null ? "-" : num(q.price)}`,
-    `今日${fmtSigned(q.changePercent)}`,
-    `溢价${num(q.premiumRate) === null ? "-" : num(q.premiumRate).toFixed(2) + "%"}${mark}`,
-    `换手${num(q.turnoverRate) === null ? "-" : num(q.turnoverRate).toFixed(2) + "%"}`,
-    `5日${fmtSigned(q.chg5)}`,
-    `年内${fmtSigned(q.ytdChangeRate)}`,
+  const rows = [
+    `标的 ${q.symbol}`,
+    `现价 ${num(q.price) === null ? "-" : num(q.price)}`,
+    `今日 ${fmtSigned(q.changePercent)}`,
+    `溢价 ${num(q.premiumRate) === null ? "-" : num(q.premiumRate).toFixed(2) + "%"}${mark}`,
+    `换手 ${num(q.turnoverRate) === null ? "-" : num(q.turnoverRate).toFixed(2) + "%"}`,
+    `5日  ${fmtSigned(q.chg5)}`,
+    `年内 ${fmtSigned(q.ytdChangeRate)}`,
   ];
-  return `- **${q.symbol}** ${shortName(q.nameCn)}　${parts.join(" ｜ ")}`;
+  return rows.join("\n");
 }
 
 // QDII 单组标的 → "每行一个指标"对比块（按溢价升序排列，同列对齐）
@@ -402,8 +403,8 @@ function renderCn(quotes, tradeDate, futures = null) {
 
   const lines = [`### 📊 QDII 收盘日报（${tradeDate}）`];
   lines.push("**纳指科技（NDXTMC）**");
-  for (const q of tech) lines.push(renderSingleLine(q, markBy)); // 独苗组单行紧凑展示
-  if (!tech.length) lines.push("暂无行情");
+  if (tech.length) lines.push(tech.map((q) => renderSingleColumn(q, markBy)).join("\n")); // 独苗组竖排展示
+  else lines.push("暂无行情");
   lines.push("");
   lines.push("**纳指100（NDX）**");
   if (ndx.length) lines.push(buildCnComparisonBlock(ndx, { markBy }));
@@ -531,8 +532,8 @@ export function renderCnIntraday(quotes, tradeDate, slot, env = process.env, fut
 
   const lines = [`### 📊 QDII 盘中日报（${tradeDate} · ${label}）`];
   lines.push("**纳指科技（NDXTMC）**");
-  for (const q of tech) lines.push(renderSingleLine(q, markBy)); // 独苗组单行紧凑展示
-  if (!tech.length) lines.push("暂无行情");
+  if (tech.length) lines.push(tech.map((q) => renderSingleColumn(q, markBy)).join("\n")); // 独苗组竖排展示
+  else lines.push("暂无行情");
   lines.push("");
   lines.push("**纳指100（NDX）**");
   if (ndx.length) lines.push(buildCnComparisonBlock(ndx, { markBy }));
