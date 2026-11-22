@@ -243,7 +243,7 @@ function renderUs(rows, tradeDate, sentiment) {
       { label: "现价", cells: valid.map((r) => (num(r.price) === null ? "-" : Number(r.price).toFixed(2))) },
       { label: "今日", cells: valid.map((r) => fmtSigned(r.changePct)) },
       { label: "5日", cells: valid.map((r) => fmtSigned(r.chg5)) },
-      { label: "年内", cells: valid.map((r) => (r.ytd === null || r.ytd === undefined ? "-" : fmtSigned(r.ytd, 1))) }, // 一位小数压缩行宽
+      { label: "年内", cells: valid.map((r) => (r.ytd === null || r.ytd === undefined ? "-" : fmtSigned(r.ytd))) },
       {
         label: "距高",
         cells: valid.map((r) => (r.dd === null ? "-" : `${r.dd >= 0 ? "+" : ""}${r.dd.toFixed(1)}%`)),
@@ -375,7 +375,7 @@ function buildCnComparisonBlock(quotes, { markBy = {} } = {}) {
     },
     { label: "换手", cells: sorted.map((q) => (num(q.turnoverRate) === null ? "-" : num(q.turnoverRate).toFixed(2) + "%")) },
     { label: "5日", cells: sorted.map((q) => fmtSigned(q.chg5)) },
-    { label: "年内", cells: sorted.map((q) => fmtSigned(q.ytdChangeRate, 1)) }, // 一位小数压缩行宽
+    { label: "年内", cells: sorted.map((q) => fmtSigned(q.ytdChangeRate)) },
   ];
   return comparisonBlock("标的", headers, metricRows);
 }
