@@ -218,17 +218,23 @@ function padRight(text, width) {
 // metricRows: [{ label: "现价", cells: ["2.523", "1.526"] }]
 // 输出：每个指标两行——第一行标签，第二行全部标的数值（各列对齐）。
 // 两行式在钉钉 text 类型下清晰：标签行/数值行各自对齐，一眼横向对比。
+// 列宽按每列内容自适应（该列最长单元格宽度 + 1 空格分隔），压缩行宽避免钉钉折行/缩小。
 function comparisonBlock(headerLabel, headers, metricRows) {
-  const cellsAll = [...metricRows.map((r) => r.cells), headers];
-  const cellWidth = Math.max(...cellsAll.flat().map((c) => dispWidth(c))) + 1;
+  const n = headers.length;
+  // 每列宽度 = 该列在所有行中的最长值宽度 + 1（分隔空格）
+  const widths = [];
+  for (let i = 0; i < n; i += 1) {
+    const colCells = [headers[i], ...metricRows.map((r) => r.cells[i])];
+    widths.push(Math.max(...colCells.map((c) => dispWidth(c))) + 1);
+  }
   const lines = [];
   // 第一组：标签"标的"，下一行全部标的代码
   lines.push(headerLabel);
-  lines.push(headers.map((h) => padRight(h, cellWidth)).join(""));
+  lines.push(headers.map((h, i) => padRight(h, widths[i])).join(""));
   // 之后每个指标：标签行 + 数值行
   for (const row of metricRows) {
     lines.push(row.label);
-    lines.push(row.cells.map((c) => padRight(c, cellWidth)).join(""));
+    lines.push(row.cells.map((c, i) => padRight(c, widths[i])).join(""));
   }
   return lines.join("\n");
 }
@@ -251,9 +257,7 @@ function renderUs(rows, tradeDate, sentiment) {
       },
       {
         label: "年线",
-        cells: valid.map((r) =>
-          r.vsSma200 === null ? "-" : `${r.vsSma200 >= 0 ? "上方+" : "下方"}${Math.abs(r.vsSma200).toFixed(1)}%`
-        ),
+        cells: valid.map((r) => (r.vsSma200 === null ? "-" : fmtSigned(r.vsSma200))), // 上方 +9.4% / 下方 -9.4%，与距高同风格压缩宽度
       },
     ];
     lines.push(comparisonBlock("标的", headers, metricRows));
