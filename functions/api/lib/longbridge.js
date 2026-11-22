@@ -102,7 +102,9 @@ function restoreTokenCache(clientId) {
   }
 }
 
-// 校验 token 缓存文件存在且是合法 JSON（避免无头环境误触发交互授权）
+// 校验 token 缓存文件存在、是合法 JSON 且 refresh token 未过期
+// （避免无头环境误触发交互授权——过期缓存进 OAuth.build 会启动浏览器授权，
+//  而 onOpenUrl callback 在原生层同步抛错，会变成 uncaughtException 崩掉进程）
 function isValidTokenCache(clientId) {
   const file = tokenCachePath(clientId);
   if (!fs.existsSync(file)) return false;
@@ -115,7 +117,18 @@ function isValidTokenCache(clientId) {
   if (!raw) return false;
   try {
     const data = JSON.parse(raw);
-    return Boolean(data && typeof data === "object");
+    if (!data || typeof data !== "object") return false;
+    const refresh = data.refresh_token || data.refreshToken || "";
+    if (typeof refresh === "string" && refresh.startsWith(".")) return false; // 缺 header，视为损坏
+    const exp = Number(data.expires_at || 0);
+    // 无 refresh_token 字段且带过期时间的缓存视为过期；有 refresh_token 则看其 JWT exp
+    if (!refresh && exp > 0) return exp > Date.now() / 1000;
+    if (!refresh) return false;
+    const jwt = refresh.split(".");
+    if (jwt.length !== 3) return false;
+    const payload = JSON.parse(Buffer.from(jwt[1], "base64url").toString("utf8"));
+    const refreshExp = Number(payload.exp || 0);
+    return refreshExp > Date.now() / 1000;
   } catch {
     return false;
   }
