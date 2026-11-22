@@ -388,6 +388,7 @@ function buildCnComparisonBlock(quotes, { markBy = {} } = {}) {
 }
 
 // 标注组内最低的 513300（NDX 组）溢价列；159509（纳指科技独苗）溢价偏高标注
+// 用半角符号避免全角 emoji 破坏列对齐（✅🟠 占 2 宽会撑大列宽）
 function cnMarkBy(quotes) {
   const markBy = {};
   const ndx = quotes
@@ -396,12 +397,12 @@ function cnMarkBy(quotes) {
   if (ndx.length) {
     const min = Math.min(...ndx.map((q) => num(q.premiumRate)));
     const minSym = ndx.find((q) => num(q.premiumRate) === min)?.symbol;
-    if (minSym) markBy[minSym] = "✅";
+    if (minSym) markBy[minSym] = "*"; // 组内最低
   }
   const tech = quotes.find((q) => q.symbol === "159509");
   const techPrem = num(tech?.premiumRate);
-  if (techPrem !== null && techPrem >= 40) markBy["159509"] = "🔴";
-  else if (techPrem !== null && techPrem >= 20) markBy["159509"] = "🟠";
+  if (techPrem !== null && techPrem >= 40) markBy["159509"] = "!!"; // 极端溢价
+  else if (techPrem !== null && techPrem >= 20) markBy["159509"] = "!"; // 溢价偏高
   return markBy;
 }
 
