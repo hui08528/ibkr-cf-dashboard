@@ -89,6 +89,7 @@ function bjLabel(date = new Date()) {
 }
 
 function fmtSigned(value, digits = 2) {
+  if (value === null || value === undefined || value === "") return "-";
   const n = Number(value);
   if (!Number.isFinite(n)) return "-";
   return `${n >= 0 ? "+" : ""}${n.toFixed(digits)}%`;
@@ -200,21 +201,57 @@ function renderSentiment(s) {
   return lines;
 }
 
+// —— 纯文本"每行一个指标、标的横排"对比布局 ——
+// 目标：同一指标一行，所有标的的值横排，扫一眼即可横向对比。
+// 纯文本对齐用"显示宽度"填充（全角=2、半角=1），列宽按最长单元格自动取齐。
+
+function dispWidth(text) {
+  return [...String(text ?? "")].reduce((w, ch) => w + (ch.codePointAt(0) > 0xff ? 2 : 1), 0);
+}
+
+function padRight(text, width) {
+  const s = String(text ?? "");
+  return s + " ".repeat(Math.max(0, width - dispWidth(s)));
+}
+
+// headers: 标的代码数组（如 ["513300", "159941"]）
+// metricRows: [{ label: "现价", cells: ["2.523", "1.526"] }]
+// 输出：第一行"标的+代码"，之后每行一个指标，全列对齐。
+function comparisonBlock(headerLabel, headers, metricRows) {
+  const cellsAll = [...metricRows.map((r) => r.cells), headers];
+  const cellWidth = Math.max(...cellsAll.flat().map((c) => dispWidth(c))) + 1;
+  const labelWidth = Math.max(dispWidth(headerLabel), ...metricRows.map((r) => dispWidth(r.label))) + 1;
+  const lines = [padRight(headerLabel, labelWidth) + headers.map((h) => padRight(h, cellWidth)).join("")];
+  for (const row of metricRows) {
+    lines.push(padRight(row.label, labelWidth) + row.cells.map((c) => padRight(c, cellWidth)).join(""));
+  }
+  return lines.join("\n");
+}
+
 function renderUs(rows, tradeDate, sentiment) {
   const lines = [`### 📊 美股收盘日报（${tradeDate}）`];
-  for (const r of rows) {
-    if (!r.price) {
-      lines.push(`- **${r.symbol}** ${r.name}：暂无行情`);
-      continue;
-    }
-    const extras = [];
-    if (r.chg5 !== null) extras.push(`5日 ${r.chg5 >= 0 ? "+" : ""}${r.chg5.toFixed(2)}%`);
-    if (r.ytd !== null && r.ytd !== undefined) extras.push(`年内 ${r.ytd >= 0 ? "+" : ""}${r.ytd.toFixed(2)}%`);
-    if (r.dd !== null) extras.push(`距高点 ${r.dd >= 0 ? "+" : ""}${r.dd.toFixed(1)}%`);
-    if (r.vsSma200 !== null) extras.push(`年线${r.vsSma200 >= 0 ? "上方 +" : "下方 "}${Math.abs(r.vsSma200).toFixed(1)}%`);
-    lines.push(
-      `- **${r.symbol}** ${r.name}：${Number(r.price).toFixed(2)}（${fmtSigned(r.changePct)}）${extras.length ? ` · ${extras.join(" · ")}` : ""}`
-    );
+  const valid = rows.filter((r) => r.price);
+  if (!valid.length) {
+    lines.push("暂无行情");
+  } else {
+    const headers = valid.map((r) => r.symbol);
+    const metricRows = [
+      { label: "现价", cells: valid.map((r) => (num(r.price) === null ? "-" : Number(r.price).toFixed(2))) },
+      { label: "今日", cells: valid.map((r) => fmtSigned(r.changePct)) },
+      { label: "5日", cells: valid.map((r) => fmtSigned(r.chg5)) },
+      { label: "年内", cells: valid.map((r) => (r.ytd === null || r.ytd === undefined ? "-" : fmtSigned(r.ytd))) },
+      {
+        label: "距高",
+        cells: valid.map((r) => (r.dd === null ? "-" : `${r.dd >= 0 ? "+" : ""}${r.dd.toFixed(1)}%`)),
+      },
+      {
+        label: "年线",
+        cells: valid.map((r) =>
+          r.vsSma200 === null ? "-" : `${r.vsSma200 >= 0 ? "上方+" : "下方"}${Math.abs(r.vsSma200).toFixed(1)}%`
+        ),
+      },
+    ];
+    lines.push(comparisonBlock("标的", headers, metricRows));
   }
   const sentimentLines = renderSentiment(sentiment);
   if (sentimentLines.length) {
@@ -266,25 +303,6 @@ async function fetchCnQuotes(env) {
   return Array.isArray(body.cnQuotes) ? body.cnQuotes : [];
 }
 
-// QDII 单只标的行：固定字段顺序 + 全角竖线分隔，手机端阅读对齐
-function formatCnLine(q, minPremium) {
-  const premium = num(q.premiumRate);
-  const turnover = num(q.turnoverRate);
-  const changePct = num(q.changePercent);
-  const chg5 = num(q.chg5);
-  const ytd = num(q.ytdChangeRate);
-  const tags = [];
-  if (premium !== null && minPremium !== null && q.premiumGroup === "NDX" && premium === minPremium) tags.push("✅组内最低");
-  if (q.symbol === "159509" && premium !== null) {
-    if (premium >= 40) tags.push("🔴极端溢价");
-    else if (premium >= 20) tags.push("🟠溢价偏高");
-  }
-  const trend = chg5 !== null || ytd !== null
-    ? `｜${chg5 !== null ? `5日 ${fmtSigned(chg5)}` : ""}${chg5 !== null && ytd !== null ? " " : ""}${ytd !== null ? `年内 ${fmtSigned(ytd)}` : ""}`
-    : "";
-  return `- **${q.symbol}** ${shortName(q.nameCn)}　${q.price ?? "-"}（${fmtSigned(changePct)}）｜溢价 ${premium === null ? "-" : premium.toFixed(2) + "%"}｜换手 ${turnover === null ? "-" : turnover.toFixed(2) + "%"}${trend}${tags.length ? `　${tags.join(" ")}` : ""}`;
-}
-
 // 建议段用短名：去掉 (QDII)/(QDII-ETF) 等括号后缀，缩短行宽
 function shortName(name) {
   return String(name || "").replace(/[（(][^）)]*[)）]/g, "").trim();
@@ -316,18 +334,66 @@ function renderFutures(futures) {
   return lines;
 }
 
+// QDII 单组标的 → "每行一个指标"对比块（按溢价升序排列，同列对齐）
+// markBy 用于给特定标的的特定指标加标记（如 513300 溢价列加 ✅组内最低）
+function buildCnComparisonBlock(quotes, { markBy = {} } = {}) {
+  const sorted = [...quotes].sort((a, b) => num(a.premiumRate) - num(b.premiumRate));
+  const headers = sorted.map((q) => q.symbol);
+  const mark = (sym, cell) => {
+    const m = markBy[sym];
+    if (!m) return cell;
+    return `${cell}${m}`;
+  };
+  const metricRows = [
+    {
+      label: "现价",
+      cells: sorted.map((q) => (num(q.price) === null ? "-" : String(num(q.price)))),
+    },
+    { label: "今日", cells: sorted.map((q) => fmtSigned(q.changePercent)) },
+    {
+      label: "溢价",
+      cells: sorted.map((q) =>
+        mark(q.symbol, num(q.premiumRate) === null ? "-" : num(q.premiumRate).toFixed(2) + "%")
+      ),
+    },
+    { label: "换手", cells: sorted.map((q) => (num(q.turnoverRate) === null ? "-" : num(q.turnoverRate).toFixed(2) + "%")) },
+    { label: "5日", cells: sorted.map((q) => fmtSigned(q.chg5)) },
+    { label: "年内", cells: sorted.map((q) => fmtSigned(q.ytdChangeRate)) },
+  ];
+  return comparisonBlock("标的", headers, metricRows);
+}
+
+// 标注组内最低的 513300（NDX 组）溢价列；159509（纳指科技独苗）溢价偏高标注
+function cnMarkBy(quotes) {
+  const markBy = {};
+  const ndx = quotes
+    .filter((q) => q.premiumGroup === "NDX")
+    .filter((q) => num(q.premiumRate) !== null);
+  if (ndx.length) {
+    const min = Math.min(...ndx.map((q) => num(q.premiumRate)));
+    const minSym = ndx.find((q) => num(q.premiumRate) === min)?.symbol;
+    if (minSym) markBy[minSym] = "✅";
+  }
+  const tech = quotes.find((q) => q.symbol === "159509");
+  const techPrem = num(tech?.premiumRate);
+  if (techPrem !== null && techPrem >= 40) markBy["159509"] = "🔴";
+  else if (techPrem !== null && techPrem >= 20) markBy["159509"] = "🟠";
+  return markBy;
+}
+
 function renderCn(quotes, tradeDate, futures = null) {
-  const ndx = quotes.filter((q) => q.premiumGroup === "NDX").filter((q) => num(q.premiumRate) !== null);
-  const minPremium = ndx.length ? Math.min(...ndx.map((q) => num(q.premiumRate))) : null;
-
   const tech = quotes.filter((q) => q.symbol === "159509");
-  const ndxSorted = [...ndx].sort((a, b) => num(a.premiumRate) - num(b.premiumRate));
+  const ndx = quotes.filter((q) => q.premiumGroup === "NDX").filter((q) => num(q.premiumRate) !== null);
+  const markBy = cnMarkBy(quotes);
 
-  const lines = [`### 📊 QDII 收盘日报（${tradeDate}）`, "**纳指科技（NDXTMC）**"];
-  for (const q of tech) lines.push(formatCnLine(q, minPremium));
-  lines.push(""); // 空行断开钉钉 markdown 列表延续，让组标题单独成行
+  const lines = [`### 📊 QDII 收盘日报（${tradeDate}）`];
+  lines.push("**纳指科技（NDXTMC）**");
+  if (tech.length) lines.push(buildCnComparisonBlock(tech, { markBy }));
+  else lines.push("暂无行情");
+  lines.push("");
   lines.push("**纳指100（NDX）**");
-  for (const q of ndxSorted) lines.push(formatCnLine(q, minPremium));
+  if (ndx.length) lines.push(buildCnComparisonBlock(ndx, { markBy }));
+  else lines.push("暂无行情");
   lines.push("");
   lines.push(...renderFutures(futures));
   lines.push(`> 推送时间：${bjLabel()}（北京时间）`);
@@ -439,23 +505,25 @@ function buildPremiumAdvice(quotes, heldSymbols, params) {
   ];
 }
 
-// QDII 盘中日报（13:00 / 13:30 槽位）：同收盘日报的标的数据 + 操作建议段
+// QDII 盘中日报（09:35 / 10:30 / 13:05 / 14:30 槽位）：同收盘日报的对比块 + 操作建议段
 export function renderCnIntraday(quotes, tradeDate, slot, env = process.env, futures = null) {
-  const label = slot === "1330" ? "13:30" : "13:00";
-  const ndx = quotes.filter((q) => q.premiumGroup === "NDX").filter((q) => num(q.premiumRate) !== null);
-  const minPremium = ndx.length ? Math.min(...ndx.map((q) => num(q.premiumRate))) : null;
+  const label = `${slot.slice(0, 2)}:${slot.slice(2)}`; // "0935" → "09:35"
   const tech = quotes.filter((q) => q.symbol === "159509");
-  const ndxSorted = [...ndx].sort((a, b) => num(a.premiumRate) - num(b.premiumRate));
+  const ndx = quotes.filter((q) => q.premiumGroup === "NDX").filter((q) => num(q.premiumRate) !== null);
+  const markBy = cnMarkBy(quotes);
 
   const strategy = loadStrategy(env);
   const held = new Set((strategy.manualPositions || []).map((p) => p.symbol));
 
-  const lines = [`### 📊 QDII 盘中日报（${tradeDate} · ${label}）`, "**纳指科技（NDXTMC）**"];
-  for (const q of tech) lines.push(formatCnLine(q, minPremium));
-  lines.push(""); // 空行断开钉钉 markdown 列表延续，让组标题单独成行
+  const lines = [`### 📊 QDII 盘中日报（${tradeDate} · ${label}）`];
+  lines.push("**纳指科技（NDXTMC）**");
+  if (tech.length) lines.push(buildCnComparisonBlock(tech, { markBy }));
+  else lines.push("暂无行情");
+  lines.push("");
   lines.push("**纳指100（NDX）**");
-  for (const q of ndxSorted) lines.push(formatCnLine(q, minPremium));
-  lines.push(""); // 空行断开列表延续
+  if (ndx.length) lines.push(buildCnComparisonBlock(ndx, { markBy }));
+  else lines.push("暂无行情");
+  lines.push("");
   lines.push("**操作建议（纳指框架·溢价）**");
   lines.push(...buildPremiumAdvice(quotes, held, strategy.params));
   lines.push("");
