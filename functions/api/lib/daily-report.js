@@ -216,14 +216,19 @@ function padRight(text, width) {
 
 // headers: 标的代码数组（如 ["513300", "159941"]）
 // metricRows: [{ label: "现价", cells: ["2.523", "1.526"] }]
-// 输出：第一行"标的+代码"，之后每行一个指标，全列对齐。
+// 输出：每个指标两行——第一行标签，第二行全部标的数值（各列对齐）。
+// 两行式在钉钉 text 类型下清晰：标签行/数值行各自对齐，一眼横向对比。
 function comparisonBlock(headerLabel, headers, metricRows) {
   const cellsAll = [...metricRows.map((r) => r.cells), headers];
   const cellWidth = Math.max(...cellsAll.flat().map((c) => dispWidth(c))) + 1;
-  const labelWidth = Math.max(dispWidth(headerLabel), ...metricRows.map((r) => dispWidth(r.label))) + 1;
-  const lines = [padRight(headerLabel, labelWidth) + headers.map((h) => padRight(h, cellWidth)).join("")];
+  const lines = [];
+  // 第一组：标签"标的"，下一行全部标的代码
+  lines.push(headerLabel);
+  lines.push(headers.map((h) => padRight(h, cellWidth)).join(""));
+  // 之后每个指标：标签行 + 数值行
   for (const row of metricRows) {
-    lines.push(padRight(row.label, labelWidth) + row.cells.map((c) => padRight(c, cellWidth)).join(""));
+    lines.push(row.label);
+    lines.push(row.cells.map((c) => padRight(c, cellWidth)).join(""));
   }
   return lines.join("\n");
 }
