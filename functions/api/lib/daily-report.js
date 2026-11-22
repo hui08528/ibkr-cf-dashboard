@@ -195,9 +195,9 @@ function renderSentiment(s) {
     if (s.fg.vixScore !== null) parts.push(`VIX分项 ${s.fg.vixScore}`);
     if (s.fg.momentum !== null) parts.push(`动量 ${s.fg.momentum}`);
     if (s.fg.breadth !== null) parts.push(`广度 ${s.fg.breadth}`);
-    lines.push(`- 恐慌贪婪：**${s.fg.score} ${s.fg.rating}**${parts.length ? `（${parts.join(" · ")}）` : ""}`);
+    lines.push(`恐慌贪婪：${s.fg.score} ${s.fg.rating}${parts.length ? `（${parts.join(" · ")}）` : ""}`);
   }
-  if (s.vix !== null) lines.push(`- VIX：**${s.vix}**（${vixRegime(s.vix)}）`);
+  if (s.vix !== null) lines.push(`VIX：${s.vix}（${vixRegime(s.vix)}）`);
   return lines;
 }
 
@@ -229,7 +229,7 @@ function comparisonBlock(headerLabel, headers, metricRows) {
 }
 
 function renderUs(rows, tradeDate, sentiment) {
-  const lines = [`### 📊 美股收盘日报（${tradeDate}）`];
+  const lines = [`📊 美股收盘日报（${tradeDate}）`];
   const valid = rows.filter((r) => r.price);
   if (!valid.length) {
     lines.push("暂无行情");
@@ -255,10 +255,10 @@ function renderUs(rows, tradeDate, sentiment) {
   }
   const sentimentLines = renderSentiment(sentiment);
   if (sentimentLines.length) {
-    lines.push("**情绪面**");
+    lines.push("情绪面");
     lines.push(...sentimentLines);
   }
-  lines.push(`> 推送时间：${bjLabel()}（北京时间）`);
+  lines.push(`推送时间：${bjLabel()}（北京时间）`);
   return lines.join("\n");
 }
 
@@ -287,7 +287,7 @@ async function maybeUs(state, env) {
   const qqqLatest = getLatest("QQQ");
   if (!isUsMarketClosed(qqqLatest, hm)) return { sent: false, reason: "market-open" };
 
-  const sent = await sendToDingtalk(renderUs(rows, tradeDate, sentiment), "📊 美股收盘日报", env);
+  const sent = await sendToDingtalk(renderUs(rows, tradeDate, sentiment), "📊 美股收盘日报", env, "text");
   if (sent.ok) {
     state.usDate = tradeDate;
     saveState(state, env);
@@ -327,10 +327,10 @@ function renderFutures(futures) {
   const nqText = one(nq, "纳指期货NQ");
   const esText = one(es, "标普期货ES");
   if (!nqText && !esText) return [];
-  lines.push("**美股期指（先行指引）**");
-  if (nqText) lines.push(`- ${nqText}`);
-  if (esText) lines.push(`- ${esText}`);
-  if (nq?.quoteTime) lines.push(`> 期货时间 ${nq.quoteTime}（北京时间），红涨绿跌`);
+  lines.push("美股期指（先行指引）");
+  if (nqText) lines.push(nqText);
+  if (esText) lines.push(esText);
+  if (nq?.quoteTime) lines.push(`期货时间 ${nq.quoteTime}（北京时间），红涨绿跌`);
   return lines;
 }
 
@@ -401,17 +401,17 @@ function renderCn(quotes, tradeDate, futures = null) {
   const ndx = quotes.filter((q) => q.premiumGroup === "NDX").filter((q) => num(q.premiumRate) !== null);
   const markBy = cnMarkBy(quotes);
 
-  const lines = [`### 📊 QDII 收盘日报（${tradeDate}）`];
-  lines.push("**纳指科技（NDXTMC）**");
+  const lines = [`📊 QDII 收盘日报（${tradeDate}）`];
+  lines.push("纳指科技（NDXTMC）");
   if (tech.length) lines.push(tech.map((q) => renderSingleColumn(q, markBy)).join("\n")); // 独苗组竖排展示
   else lines.push("暂无行情");
   lines.push("");
-  lines.push("**纳指100（NDX）**");
+  lines.push("纳指100（NDX）");
   if (ndx.length) lines.push(buildCnComparisonBlock(ndx, { markBy }));
   else lines.push("暂无行情");
   lines.push("");
   lines.push(...renderFutures(futures));
-  lines.push(`> 推送时间：${bjLabel()}（北京时间）`);
+  lines.push(`推送时间：${bjLabel()}（北京时间）`);
   return lines.join("\n");
 }
 
@@ -434,7 +434,7 @@ function buildPremiumAdvice(quotes, heldSymbols, params) {
   }
   for (const rows of grouped.values()) rows.sort((a, b) => a.premium - b.premium);
 
-  const ref = (s) => `**${shortName(s.q.nameCn) || s.q.symbol}（${s.q.symbol}）**`;
+  const ref = (s) => `${shortName(s.q.nameCn) || s.q.symbol}（${s.q.symbol}）`;
 
   // 1️⃣ 买入：逐组判断组内最低所处区间
   const buy = [];
@@ -510,13 +510,13 @@ function buildPremiumAdvice(quotes, heldSymbols, params) {
   }
   if (anyExtreme) conclusion += "；极端溢价标的一律不碰";
 
-  // 图标式分段：用带 U+FE0F 的标准 emoji（钉钉彩色渲染稳定）
+  // 图标式分段：用带 U+FE0F 的标准 emoji（text 类型 emoji 仍可显示，去 markdown 语法）
   return [
-    `- 🟢 **买入**：${buy.join("；")}`,
-    `- ✅ **持有**：${hold.length ? hold.join("；") : "无"}`,
-    `- 🔄 **换仓·止盈**：${switchList.length ? switchList.join("；") : "无"}`,
-    `- ⚠️ **回避**：${avoid.join("　")}`,
-    `- 📌 **结论**：${conclusion}`,
+    `🟢 买入：${buy.join("；")}`,
+    `✅ 持有：${hold.length ? hold.join("；") : "无"}`,
+    `🔄 换仓·止盈：${switchList.length ? switchList.join("；") : "无"}`,
+    `⚠️ 回避：${avoid.join("　")}`,
+    `📌 结论：${conclusion}`,
   ];
 }
 
@@ -530,20 +530,20 @@ export function renderCnIntraday(quotes, tradeDate, slot, env = process.env, fut
   const strategy = loadStrategy(env);
   const held = new Set((strategy.manualPositions || []).map((p) => p.symbol));
 
-  const lines = [`### 📊 QDII 盘中日报（${tradeDate} · ${label}）`];
-  lines.push("**纳指科技（NDXTMC）**");
+  const lines = [`📊 QDII 盘中日报（${tradeDate} · ${label}）`];
+  lines.push("纳指科技（NDXTMC）");
   if (tech.length) lines.push(tech.map((q) => renderSingleColumn(q, markBy)).join("\n")); // 独苗组竖排展示
   else lines.push("暂无行情");
   lines.push("");
-  lines.push("**纳指100（NDX）**");
+  lines.push("纳指100（NDX）");
   if (ndx.length) lines.push(buildCnComparisonBlock(ndx, { markBy }));
   else lines.push("暂无行情");
   lines.push("");
-  lines.push("**操作建议（纳指框架·溢价）**");
+  lines.push("操作建议（纳指框架·溢价）");
   lines.push(...buildPremiumAdvice(quotes, held, strategy.params));
   lines.push("");
   lines.push(...renderFutures(futures));
-  lines.push(`> 推送时间：${bjLabel()}（北京时间）`);
+  lines.push(`推送时间：${bjLabel()}（北京时间）`);
   return lines.join("\n");
 }
 
@@ -559,7 +559,7 @@ async function maybeCn(state, env) {
   if (!tradeDate || state.cnDate === tradeDate) return { sent: false, reason: "already-sent" };
 
   const futures = await fetchFutures(env);
-  const sent = await sendToDingtalk(renderCn(quotes, tradeDate, futures), "📊 QDII收盘日报", env);
+  const sent = await sendToDingtalk(renderCn(quotes, tradeDate, futures), "📊 QDII收盘日报", env, "text");
   if (sent.ok) {
     state.cnDate = tradeDate;
     saveState(state, env);
@@ -593,7 +593,7 @@ async function maybeCnIntraday(state, env, slot) {
   if (!tradeDate || state[conf.key] === tradeDate) return { sent: false, reason: "already-sent" };
 
   const futures = await fetchFutures(env);
-  const sent = await sendToDingtalk(renderCnIntraday(quotes, tradeDate, slot, env, futures), conf.title, env);
+  const sent = await sendToDingtalk(renderCnIntraday(quotes, tradeDate, slot, env, futures), conf.title, env, "text");
   if (sent.ok) {
     state[conf.key] = tradeDate;
     saveState(state, env);
@@ -622,7 +622,7 @@ export async function forceReport(kind, env = process.env) {
     const [rows, sentiment] = await Promise.all([buildUsRows(env), buildSentiment(env)]);
     const tradeDate = rows.find((r) => r.tradeDate)?.tradeDate || tzDate(new Date(), US_TZ);
     const content = renderUs(rows, tradeDate, sentiment);
-    const sent = await sendToDingtalk(content, "📊 美股收盘日报", env);
+    const sent = await sendToDingtalk(content, "📊 美股收盘日报", env, "text");
     return { kind, tradeDate, sent, preview: content };
   }
   const slot = kind.startsWith("cn-") && CN_INTRADAY_SLOTS[kind.slice(3)] ? kind.slice(3) : null;
@@ -630,10 +630,10 @@ export async function forceReport(kind, env = process.env) {
   const tradeDate = quotes.map((q) => q.tradingDay).filter(Boolean).sort().at(-1) || tzDate(new Date(), BJ_TZ);
   if (slot) {
     const content = renderCnIntraday(quotes, tradeDate, slot, env, futures);
-    const sent = await sendToDingtalk(content, CN_INTRADAY_SLOTS[slot].title, env);
+    const sent = await sendToDingtalk(content, CN_INTRADAY_SLOTS[slot].title, env, "text");
     return { kind, tradeDate, sent, preview: content };
   }
   const content = renderCn(quotes, tradeDate, futures);
-  const sent = await sendToDingtalk(content, "📊 QDII收盘日报", env);
+  const sent = await sendToDingtalk(content, "📊 QDII收盘日报", env, "text");
   return { kind, tradeDate, sent, preview: content };
 }

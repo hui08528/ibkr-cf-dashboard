@@ -63,10 +63,12 @@ export function signedUrl(webhookUrl, secret) {
 }
 
 /**
- * 发送 markdown 消息到钉钉群机器人。
+ * 发送消息到钉钉群机器人。
+ * @param type "markdown"（默认，富文本）| "text"（纯文本，逐字保留换行）
+ * 注：钉钉 markdown 会把裸换行折叠成空格，多行数据（如竖排对比）必须用 "text"。
  * @returns {Promise<{ok: boolean, errors?: string[]}>}
  */
-export async function sendToDingtalk(content, title = "", env = {}) {
+export async function sendToDingtalk(content, title = "", env = {}, type = "markdown") {
   const webhookUrl = envValue("DINGTALK_WEBHOOK_URL", env);
   if (!webhookUrl) {
     console.warn("[dingtalk] DINGTALK_WEBHOOK_URL 未配置，跳过推送");
@@ -81,10 +83,18 @@ export async function sendToDingtalk(content, title = "", env = {}) {
 
   for (let index = 0; index < chunks.length; index += 1) {
     const chunk = chunks[index];
-    const text = index === 0 && safeTitle ? `### ${safeTitle}\n\n${chunk}` : chunk;
     const displayTitle =
       chunks.length > 1 ? `${safeTitle || "通知"} (${index + 1}/${chunks.length})` : safeTitle || "通知";
-    const payload = { msgtype: "markdown", markdown: { title: displayTitle.slice(0, MAX_TITLE_CHARS), text } };
+
+    let payload;
+    if (type === "text") {
+      // 纯文本：整段拼接标题+内容，逐字保留换行
+      const fullText = chunks.length > 1 ? `${safeTitle}\n${chunk}` : chunk;
+      payload = { msgtype: "text", text: { content: fullText } };
+    } else {
+      const text = index === 0 && safeTitle ? `### ${safeTitle}\n\n${chunk}` : chunk;
+      payload = { msgtype: "markdown", markdown: { title: displayTitle.slice(0, MAX_TITLE_CHARS), text } };
+    }
 
     try {
       const response = await fetch(url, {
