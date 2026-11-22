@@ -338,7 +338,7 @@ function renderFutures(futures) {
 function renderSingleColumn(q, markBy = {}) {
   const mark = markBy[q.symbol] || "";
   const rows = [
-    `标的 ${q.symbol}`,
+    `标的${q.symbol}`,
     `现价 ${num(q.price) === null ? "-" : num(q.price)}`,
     `今日 ${fmtSigned(q.changePercent)}`,
     `溢价 ${num(q.premiumRate) === null ? "-" : num(q.premiumRate).toFixed(2) + "%"}${mark}`,
